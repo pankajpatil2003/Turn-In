@@ -3,7 +3,7 @@
 # -------------------------------------------------------------------------
 # Ignore the virtual environment directory (assuming it's inside 'backend/')
 /backend/venv/
-/backend/env/
+/backend/.env
 *.egg-info/
 .python-version
 
