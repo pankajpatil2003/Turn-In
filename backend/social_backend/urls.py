@@ -3,27 +3,24 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-# --- Simple JWT Views ---
-from rest_framework_simplejwt.views import (
-    TokenRefreshView,
-    TokenVerifyView,
-)
+# Import JWT Views for refresh/verify tokens
+from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
 
 # --- Custom Accounts Views ---
 from accounts.views import (
-    MyTokenObtainPairView,  # Custom login view
-    UsernameCheckView,      # New instant username check
-    RequestOTPView,         # Step 1 of Registration
-    FinalRegisterView,      # Step 2 of Registration
+    MyTokenObtainPairView,  
+    UsernameCheckView,      
+    RequestOTPView,         
+    FinalRegisterView,      
+    StudentProfileUpdateView, # IMPORTED: New Profile View
 )
-
 
 urlpatterns = [
     # Django Admin Site
     path('admin/', admin.site.urls),
 
     # =================================================================
-    # 1. AUTHENTICATION & TOKEN ENDPOINTS
+    # 1. AUTHENTICATION & PROFILE ENDPOINTS
     # =================================================================
 
     # Utility Check
@@ -38,23 +35,18 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
     
-    # Placeholder for profile management
-    # path('api/profile/', ProfileUpdateView.as_view(), name='user_profile'),
+    # NEW: Profile Management Endpoint
+    path('api/profile/', StudentProfileUpdateView.as_view(), name='user_profile_update'), 
 
 
     # =================================================================
     # 2. APPLICATION CONTENT ENDPOINTS
     # =================================================================
     
-    # Directs all URLs starting with 'api/content/' to the content app's urls.py
+    # Placeholder for the content app
     path('api/content/', include('content.urls')),
 ]
 
-
-# =================================================================
-# 3. MEDIA FILES (DEVELOPMENT ONLY)
-# =================================================================
-
-# This is essential for serving uploaded images/videos during local development.
+# Serve media files (like profile pictures) during development
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

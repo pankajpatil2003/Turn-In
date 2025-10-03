@@ -9,10 +9,15 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework import serializers # Used for local serializer definition
+from rest_framework import serializers 
+from rest_framework import generics, permissions # NEW: Imports for generics and permissions
 
-from .models import User, OTP
-from .serializers import UserRegistrationSerializer, RequestOTPSerializer
+from .models import User, OTP, StudentProfile # UPDATED: Imported StudentProfile
+from .serializers import (
+    UserRegistrationSerializer, 
+    RequestOTPSerializer,
+    StudentProfileSerializer # UPDATED: Imported Profile Serializer
+)
 from .utils import send_otp_email # Custom email function
 
 # 1. Custom Login View
@@ -56,7 +61,6 @@ class RequestOTPView(APIView):
             defaults={
                 'otp_code': otp_code, 
                 'created_at': timezone.now()
-                # expires_at is correctly set in the OTP model's save method
             }
         )
         
@@ -108,3 +112,21 @@ class FinalRegisterView(APIView):
             return Response({"message": "User registered successfully."}, status=status.HTTP_201_CREATED)
             
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# 5. Profile Update Endpoint
+class StudentProfileUpdateView(generics.RetrieveUpdateAPIView):
+    """
+    Allows authenticated users to view (GET) and update (PUT/PATCH) their profile details.
+    Requires authentication and ensures the user only accesses their own profile.
+    """
+    queryset = StudentProfile.objects.all()
+    serializer_class = StudentProfileSerializer
+    permission_classes = [permissions.IsAuthenticated] 
+
+    def get_object(self):
+        """
+        Overrides the standard method to ensure the user can only access their own profile 
+        via the OneToOne field (self.request.user.studentprofile).
+        """
+        return self.request.user.studentprofile
