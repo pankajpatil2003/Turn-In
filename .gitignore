@@ -1,0 +1,44 @@
+# -------------------------------------------------------------------------
+# 1. Virtual Environment & Dependencies (inside the backend folder)
+# -------------------------------------------------------------------------
+# Ignore the virtual environment directory (assuming it's inside 'backend/')
+/backend/venv/
+/backend/env/
+*.egg-info/
+.python-version
+
+# Python bytecode
+*.pyc
+__pycache__/
+
+# -------------------------------------------------------------------------
+# 2. Django & Database Files (inside the backend folder)
+# -------------------------------------------------------------------------
+# Local DB files 
+*.sqlite3
+db.sqlite3
+
+# Django-specific cache files
+/backend/staticfiles/
+.webassets-cache
+.vscode/
+
+# Critical: Ignore local settings that contain SECRET_KEY and credentials
+# Assuming this file sits near manage.py or in the config folder
+local_settings.py
+
+# -------------------------------------------------------------------------
+# 3. Media & Uploaded Files (inside the backend folder)
+# -------------------------------------------------------------------------
+# Ignore all user-uploaded media (profile_pics, posts, etc.)
+/backend/media/
+
+# -------------------------------------------------------------------------
+# 4. Logs & OS Files
+# -------------------------------------------------------------------------
+*.log
+*.pot
+*.orig
+*~
+.DS_Store # Mac OS
+Thumbs.db # Windows
