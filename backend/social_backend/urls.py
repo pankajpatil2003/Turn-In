@@ -44,7 +44,7 @@ urlpatterns = [
     # =================================================================
     
     # Placeholder for the content app
-    path('api/content/', include('content.urls')),
+    path('api/content/', include('content.urls')), 
 ]
 
 # Serve media files (like profile pictures) during development

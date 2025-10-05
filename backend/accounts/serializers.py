@@ -2,12 +2,54 @@ from rest_framework import serializers
 from .models import User, StudentProfile
 
 # 1. Serializer for StudentProfile (Used for updates later)
+# accounts/serializers.py (Changes in StudentProfileSerializer)
+
 class StudentProfileSerializer(serializers.ModelSerializer):
-    """Handles serialization of the StudentProfile model."""
+    """
+    Handles serialization of the StudentProfile model, now including 
+    read-only fields from the linked User model.
+    """
+    
+    # 1. Read-only fields from the linked User model
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+    user_is = serializers.UUIDField(source='user.user_is', read_only=True)
+    
+    # Optional: If you want to show names on the profile screen too
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_null=True)
+    last_name = serializers.CharField(source='user.last_name', required=False, allow_null=True)
+    
     class Meta:
         model = StudentProfile
-        fields = ('college_university', 'department', 'course', 'current_year')
-        read_only_fields = ('feed_types',) 
+        fields = (
+            'username', 'email', 'user_is', # Core User Fields
+            'first_name', 'last_name',      # Core User Names
+            'profile_image', 
+            'college_university', 
+            'department', 
+            'course', 
+            'current_year',
+            'feed_types'
+        )
+        read_only_fields = ('feed_types', 'username', 'email', 'user_is')
+
+    # Optional: Override update() if you want the profile endpoint to update first/last name
+    def update(self, instance, validated_data):
+        # Handle updating fields in the related User model
+        user_data = {
+            'first_name': validated_data.pop('first_name', None),
+            'last_name': validated_data.pop('last_name', None)
+        }
+        
+        # Update User fields
+        user = instance.user
+        for key, value in user_data.items():
+            if value is not None:
+                setattr(user, key, value)
+        user.save()
+        
+        # Update StudentProfile fields
+        return super().update(instance, validated_data)
 
 # 2. Serializer for RequestOTP (Step 1)
 class RequestOTPSerializer(serializers.Serializer):
