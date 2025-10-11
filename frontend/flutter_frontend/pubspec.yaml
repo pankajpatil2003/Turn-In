@@ -1,0 +1,62 @@
+name: flutter_frontend
+description: "A social networking app frontend built with Flutter."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.0 # Updated to a wider range for stability
+
+# Dependencies specify other packages that your package needs in order to work.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI/Core
+  cupertino_icons: ^1.0.8
+  go_router: ^16.2.4
+
+  # 1. API Communication (HTTP Client)
+  dio: ^5.4.1 
+  
+  # 2. Secure Storage (For Django Auth Token)
+  flutter_secure_storage: ^10.0.0-beta.4
+
+  # 3. State Management (Riverpod)
+  flutter_riverpod: ^3.0.3
+  riverpod_annotation: ^3.0.3
+  freezed_annotation: ^3.1.0 # For the AuthState class
+  freezed: ^3.2.3 # Utility methods
+
+  # 4. Data Serialization
+  json_annotation: ^4.9.0
+
+  # 5. UI/Utility Packages for Social Apps
+  cached_network_image: ^3.3.1 
+  timeago: ^3.6.1
+  image_picker: ^1.0.7
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Code generation tools
+  build_runner: ^2.4.8
+  json_serializable: ^6.7.1
+  riverpod_generator: ^3.0.3
+  
+  # Linter for best practices
+  flutter_lints: ^6.0.0
+  custom_lint: ^0.8.0
+  riverpod_lint: ^3.0.3
+
+# The following section is specific to Flutter packages.
+flutter:
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  # assets:
+  #   - assets/images/
