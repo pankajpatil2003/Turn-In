@@ -35,6 +35,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware', 
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -61,9 +62,51 @@ TEMPLATES = [
     },
 ]
 
+CORS_ALLOW_ALL_ORIGINS = True
+
 WSGI_APPLICATION = 'social_backend.wsgi.application'
 
 AUTH_USER_MODEL = 'accounts.User'
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:60275",  # The specific port your app is running on
+    "http://localhost:8080",   # Common Flutter Web default
+    "http://localhost:3000",   # Common Flutter Desktop default
+    "http://127.0.0.1:60275", 
+    "http://127.0.0.1:8080",
+
+    # This is for Android Emulator connectivity
+    "http://10.0.2.2:8000", 
+    "http://127.0.0.1:61759",
+    "http://localhost:61759",
+    "http://localhost:52157",
+    "http://127.0.0.1:52157",
+    "http://localhost:59614",
+    "http://127.0.0.1:59614",
+    "http://localhost:60902",
+    "http://127.0.0.1:60902",
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -170,7 +213,7 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587 # Port for TLS
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'animeyt660@gmail.com')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'hqyq wxyg djdt ffva') # Use App Password!
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '') # Use App Password!
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 

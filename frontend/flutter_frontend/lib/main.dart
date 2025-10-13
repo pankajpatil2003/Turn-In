@@ -1,40 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/routes.dart'; // Import the new router file
+import 'screens/registration/registration_flow.dart'; // Import the main flow widget
 
 void main() {
-  // Riverpod requirement: All apps using Riverpod must be wrapped in a ProviderScope.
-  runApp(const ProviderScope(child: MyApp()));
+  runApp(const MyApp());
 }
 
-class MyApp extends ConsumerWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Watch the GoRouter instance from the provider
-    final router = ref.watch(goRouterProvider);
-
-    return MaterialApp.router(
-      title: 'Social App',
-      debugShowCheckedModeBanner: false,
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'User Registration Flow',
       theme: ThemeData(
-        // Primary color scheme
-        primarySwatch: Colors.indigo, 
-        // Ensures density adapts based on platform
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        // Set a modern, clean font
-        fontFamily: 'Inter', 
+        // Configure a modern, clean theme
+        primarySwatch: Colors.indigo,
+        primaryColor: Colors.indigo,
         useMaterial3: true,
-        // Define a clean, compact AppBar style
-        appBarTheme: const AppBarTheme(
-          elevation: 0,
-          centerTitle: true,
-        )
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8.0)),
+          ),
+        ),
       ),
-      // Use MaterialApp.router and provide the router object
-      // GoRouter handles all navigation and authentication-based redirects.
-      routerConfig: router,
+      // Set the RegistrationFlow as the home screen
+      home: const RegistrationFlow(),
     );
   }
 }
