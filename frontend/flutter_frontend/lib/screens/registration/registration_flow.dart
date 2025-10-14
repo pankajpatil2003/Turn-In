@@ -1,9 +1,19 @@
+// lib/screens/registration/registration_flow.dart (Modified)
+
+// Update the imports and the class definition:
 import 'package:flutter/material.dart';
 import 'otp_request_screen.dart';
 import 'final_registration_screen.dart';
 
 class RegistrationFlow extends StatefulWidget {
-  const RegistrationFlow({super.key});
+  final VoidCallback onRegistrationSuccess; // <-- New requirement
+  final VoidCallback onBackToLogin; // <-- New requirement
+
+  const RegistrationFlow({
+    super.key,
+    required this.onRegistrationSuccess,
+    required this.onBackToLogin,
+  });
 
   @override
   State<RegistrationFlow> createState() => _RegistrationFlowState();
@@ -11,44 +21,39 @@ class RegistrationFlow extends StatefulWidget {
 
 class _RegistrationFlowState extends State<RegistrationFlow> {
   String? _registrationEmail; 
-  bool _registrationSuccessful = false;
-
+  // bool _registrationSuccessful is NO LONGER NEEDED here, 
+  // we use the callback to notify the AuthWrapper
+  
   void _handleOtpRequested(String email) {
     setState(() {
       _registrationEmail = email;
     });
   }
 
-  void _handleRegistrationSuccess() {
-    setState(() {
-      _registrationSuccessful = true;
-    });
+  // Final step success handler calls the parent's success method
+  void _handleFinalRegistrationSuccess() {
+     widget.onRegistrationSuccess(); 
   }
 
   void _resetFlow() {
     setState(() {
       _registrationEmail = null;
-      _registrationSuccessful = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_registrationSuccessful) {
-      // Success Screen (placeholder)
-      return const Center(child: Text("Registration Complete!"));
-    }
-
     if (_registrationEmail == null) {
       // Step 1: Request OTP
       return OtpRequestScreen(
         onOtpRequested: _handleOtpRequested,
+        onBackToLogin: widget.onBackToLogin, // Pass link to login
       );
     } else {
       // Step 2: Final Registration
       return FinalRegistrationScreen(
         email: _registrationEmail!,
-        onRegistrationSuccess: _handleRegistrationSuccess,
+        onRegistrationSuccess: _handleFinalRegistrationSuccess,
         onBack: _resetFlow,
       );
     }

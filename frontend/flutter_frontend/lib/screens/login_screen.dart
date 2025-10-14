@@ -1,29 +1,31 @@
 import 'package:flutter/material.dart';
-import '../../services/auth_service.dart';
+import '../services/auth_service.dart';
+import '../models/user_model.dart';
 
-class OtpRequestScreen extends StatefulWidget {
-  final ValueChanged<String> onOtpRequested;
-  final VoidCallback onBackToLogin; // <-- New callback for navigation
+class LoginScreen extends StatefulWidget {
+  final ValueChanged<AuthTokens> onLoginSuccess;
+  final VoidCallback onNavigateToRegister;
 
-  const OtpRequestScreen({
+  const LoginScreen({
     super.key,
-    required this.onOtpRequested,
-    required this.onBackToLogin, // <-- NEW
+    required this.onLoginSuccess,
+    required this.onNavigateToRegister,
   });
 
   @override
-  State<OtpRequestScreen> createState() => _OtpRequestScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _OtpRequestScreenState extends State<OtpRequestScreen> {
-  final TextEditingController _emailController = TextEditingController();
+class _LoginScreenState extends State<LoginScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
-  
+
   bool _isLoading = false;
   String _errorMessage = '';
-
-  Future<void> _handleOtpRequest() async {
+  
+  Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
@@ -32,13 +34,13 @@ class _OtpRequestScreenState extends State<OtpRequestScreen> {
     });
 
     try {
-      await _authService.requestOtp(_emailController.text.trim());
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('OTP sent successfully! Check your email.')),
+      final tokens = await _authService.login(
+        _emailController.text.trim(),
+        _passwordController.text,
       );
       
-      widget.onOtpRequested(_emailController.text.trim());
+      // Pass the tokens back to the parent widget for storage/routing
+      widget.onLoginSuccess(tokens);
     } catch (e) {
       setState(() {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -54,7 +56,7 @@ class _OtpRequestScreenState extends State<OtpRequestScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Request OTP (Step 1 of 2)'),
+        title: const Text('User Login'),
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
       ),
@@ -68,11 +70,12 @@ class _OtpRequestScreenState extends State<OtpRequestScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Start Registration',
+                  'Welcome Back!',
                   style: TextStyle(fontSize: 28.0, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 30),
                 
+                // Email Field
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -81,15 +84,20 @@ class _OtpRequestScreenState extends State<OtpRequestScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.email),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Email is required.';
-                    }
-                    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
-                      return 'Enter a valid email address.';
-                    }
-                    return null;
-                  },
+                  validator: (value) => (value == null || value.isEmpty) ? 'Email is required.' : null,
+                ),
+                const SizedBox(height: 15),
+                
+                // Password Field
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock),
+                  ),
+                  validator: (value) => (value == null || value.isEmpty) ? 'Password is required.' : null,
                 ),
                 const SizedBox(height: 20),
                 
@@ -106,7 +114,7 @@ class _OtpRequestScreenState extends State<OtpRequestScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleOtpRequest,
+                    onPressed: _isLoading ? null : _handleLogin,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 15),
                       backgroundColor: Theme.of(context).primaryColor,
@@ -114,19 +122,14 @@ class _OtpRequestScreenState extends State<OtpRequestScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                          )
-                        : const Text('Send OTP Code', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                        : const Text('Login', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 
-                // --- Link to Login ---
                 TextButton(
-                  onPressed: widget.onBackToLogin,
-                  child: const Text('← Go to Login'),
+                  onPressed: widget.onNavigateToRegister,
+                  child: const Text("Don't have an account? Register here."),
                 ),
               ],
             ),

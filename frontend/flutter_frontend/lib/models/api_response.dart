@@ -1,11 +1,3 @@
-// lib/models/api_response.dart
-
-/// A generic class to hold the response from an API call.
-/// 
-/// [T] is the expected data type on success (e.g., String, UserModel).
-/// 
-/// If [error] is null, the request was successful and [data] holds the result.
-/// If [error] is not null, the request failed and [data] is ignored.
 class ApiResponse<T> {
   final T? data;
   final String? error;

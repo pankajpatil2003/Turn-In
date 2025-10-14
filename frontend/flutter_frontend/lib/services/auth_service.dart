@@ -97,4 +97,37 @@ class AuthService {
       throw Exception('Network or general error: $e');
     }
   }
+
+  Future<AuthTokens> login(String email, String password) async {
+    final url = Uri.parse(ApiConfig.LOGIN_URL);
+    
+    final requestBody = json.encode({
+      'email': email,
+      'password': password,
+    });
+    print('Sending Login Request to: $url with body: $requestBody');
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: requestBody,
+      );
+
+      if (response.statusCode == 200) {
+        // Success: Parse the tokens
+        final data = json.decode(response.body);
+        print('Login Success! Response: $data');
+        return AuthTokens.fromJson(data);
+      } else {
+        // Handle 400 (Bad Credentials) or other errors
+        print('Login failed! Status: ${response.statusCode}');
+        print('Response Body: ${response.body}');
+        
+        throw Exception(_parseApiError(response));
+      }
+    } catch (e) {
+      throw Exception('Network or general error during login: $e');
+    }
+  }
 }

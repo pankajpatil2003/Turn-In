@@ -1,3 +1,5 @@
+// lib/screens/registration/final_registration_screen.dart (No changes needed)
+
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../models/user_model.dart';
@@ -55,7 +57,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
 
       await _authService.completeRegistration(registrationData);
 
-      // Success: Notify parent and show success screen
+      // Success: Notify parent AuthFlow/AuthWrapper
       widget.onRegistrationSuccess();
     } catch (e) {
       setState(() {
@@ -72,7 +74,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Complete Registration'),
+        title: const Text('Complete Registration (Step 2 of 2)'),
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
       ),
@@ -89,14 +91,8 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                   'Final Step',
                   style: TextStyle(fontSize: 28.0, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Enter details and the OTP sent to: ${widget.email}',
-                  style: const TextStyle(fontSize: 16.0, color: Colors.grey),
-                ),
                 const SizedBox(height: 30),
 
-                // OTP Code Field
                 TextFormField(
                   controller: _otpCodeController,
                   keyboardType: TextInputType.number,
@@ -111,7 +107,6 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                 ),
                 const SizedBox(height: 15),
 
-                // Username Field
                 TextFormField(
                   controller: _usernameController,
                   decoration: const InputDecoration(
@@ -123,7 +118,6 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                 ),
                 const SizedBox(height: 15),
 
-                // Password Field
                 TextFormField(
                   controller: _passwordController,
                   obscureText: true,
@@ -136,7 +130,6 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                 ),
                 const SizedBox(height: 15),
 
-                // Confirm Password Field
                 TextFormField(
                   controller: _confirmPasswordController,
                   obscureText: true,
@@ -165,7 +158,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                     onPressed: _isLoading ? null : _handleRegistration,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 15),
-                      backgroundColor: Colors.green, // Use a distinct color for registration
+                      backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
@@ -181,7 +174,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                 
                 TextButton(
                   onPressed: widget.onBack,
-                  child: const Text('← Go Back to OTP Request'),
+                  child: const Text('← Change Email / Resend OTP'),
                 ),
               ],
             ),
