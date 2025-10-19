@@ -1,29 +1,30 @@
 from rest_framework import serializers
 from .models import User, StudentProfile
 
-# 1. Serializer for StudentProfile (Used for updates later)
-# accounts/serializers.py (Changes in StudentProfileSerializer)
+# ----------------------------------------------------------------------
+# 1. Serializer for StudentProfile (Used for updates)
+# ----------------------------------------------------------------------
 
 class StudentProfileSerializer(serializers.ModelSerializer):
     """
-    Handles serialization of the StudentProfile model, now including 
-    read-only fields from the linked User model.
+    Handles serialization of the StudentProfile model, including fields 
+    from the linked User model for read/write.
     """
     
-    # 1. Read-only fields from the linked User model
+    # Read-only fields from the linked User model
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
     user_is = serializers.UUIDField(source='user.user_is', read_only=True)
     
-    # Optional: If you want to show names on the profile screen too
+    # Writable fields sourced from the User model (CRITICAL for update)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_null=True)
     last_name = serializers.CharField(source='user.last_name', required=False, allow_null=True)
     
     class Meta:
         model = StudentProfile
         fields = (
-            'username', 'email', 'user_is', # Core User Fields
-            'first_name', 'last_name',      # Core User Names
+            'username', 'email', 'user_is', 
+            'first_name', 'last_name',       
             'profile_image', 
             'college_university', 
             'department', 
@@ -33,30 +34,41 @@ class StudentProfileSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('feed_types', 'username', 'email', 'user_is')
 
-    # Optional: Override update() if you want the profile endpoint to update first/last name
     def update(self, instance, validated_data):
-        # Handle updating fields in the related User model
-        user_data = {
-            'first_name': validated_data.pop('first_name', None),
-            'last_name': validated_data.pop('last_name', None)
-        }
-        
-        # Update User fields
+        """
+        FIXED: Separates and updates fields for the linked User object 
+        and the StudentProfile object.
+        """
+        # 1. CRITICAL: Extract the nested 'user' dictionary created by DRF due to the 'source=' attribute
+        user_data = validated_data.pop('user', {}) 
         user = instance.user
-        for key, value in user_data.items():
-            if value is not None:
-                setattr(user, key, value)
-        user.save()
-        
-        # Update StudentProfile fields
-        return super().update(instance, validated_data)
 
+        # 2. Update StudentProfile fields (e.g., college_university, department, etc.)
+        # This uses the default ModelSerializer update for the profile's direct fields.
+        profile_instance = super().update(instance, validated_data)
+
+        # 3. Update the related User fields (first_name, last_name)
+        if user_data:
+            for attr, value in user_data.items():
+                # Only update if the value is provided and not None
+                if value is not None: 
+                    setattr(user, attr, value)
+            user.save()
+
+        return profile_instance
+
+# ----------------------------------------------------------------------
 # 2. Serializer for RequestOTP (Step 1)
+# ----------------------------------------------------------------------
+
 class RequestOTPSerializer(serializers.Serializer):
     """Handles the initial email submission for OTP request."""
     email = serializers.EmailField()
 
+# ----------------------------------------------------------------------
 # 3. Serializer for Final Registration (Step 2)
+# ----------------------------------------------------------------------
+
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """
     Handles creation of User with minimal fields (email, username, password) 
@@ -64,14 +76,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     """
     password_confirm = serializers.CharField(style={'input_type': 'password'}, write_only=True)
     
-    # CRITICAL FIX: REMOVE otp_code from the serializer entirely.
-    # The view (FinalRegisterView) handles checking the OTP. 
-    # The serializer only needs the fields required for user creation.
-    
     class Meta:
         model = User
-        # Fields collected at minimal registration
-        # REMOVED: 'otp_code'
         fields = ('email', 'username', 'password', 'password_confirm')
         extra_kwargs = {
             'password': {'write_only': True},
@@ -88,7 +94,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Creates the User and ensures an empty StudentProfile is created."""
         
-        # Now we only need to remove 'password_confirm'
         validated_data.pop('password_confirm') 
         
         user = User.objects.create_user(**validated_data)

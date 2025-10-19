@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
 import 'registration/registration_flow.dart';
-import '../models/user_model.dart'; // Import AuthTokens
+import '../models/user_model.dart';
+import '../services/token_storage_service.dart';
+import 'home_screen.dart'; 
 
 enum AuthMode { login, register }
 
@@ -14,13 +16,45 @@ class AuthWrapper extends StatefulWidget {
 
 class _AuthWrapperState extends State<AuthWrapper> {
   AuthMode _mode = AuthMode.login; // Default to Login
-  AuthTokens? _userTokens; // Will hold tokens after successful login
+  AuthTokens? _userTokens;
+  final TokenStorageService _tokenService = TokenStorageService(); // <-- INSTANTIATE TOKEN SERVICE
+  bool _isInitializing = true; // <-- NEW: State to show loading while checking tokens
 
-  void _handleLoginSuccess(AuthTokens tokens) {
+  @override
+  void initState() {
+    super.initState();
+    _checkInitialAuthStatus(); // Check for existing token on launch
+  }
+
+  // NEW: Checks shared preferences for an existing token on app start
+  Future<void> _checkInitialAuthStatus() async {
+    final accessToken = await _tokenService.getAccessToken();
+    if (accessToken != null) {
+      // If token found, set the user as logged in. (Refresh token is optional here)
+      _userTokens = AuthTokens(accessToken: accessToken, refreshToken: 'placeholder'); 
+    }
+    setState(() {
+      _isInitializing = false;
+    });
+  }
+
+  void _handleLoginSuccess(AuthTokens tokens) async { // <-- NOW ASYNC TO SAVE TOKENS
+    await _tokenService.saveTokens(tokens); // Save tokens persistently
     setState(() {
       _userTokens = tokens;
-      // In a real app, you would save these tokens securely here.
-      print('User logged in successfully! Access Token: ${tokens.accessToken}');
+      print('User logged in and tokens saved.');
+    });
+  }
+
+  // NEW: Handles the logout action from the HomeScreen
+  void _handleLogout() async {
+    await _tokenService.clearTokens(); // Clear tokens from storage
+    setState(() {
+      _userTokens = null;
+      _mode = AuthMode.login; // Reset to login view
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Logged out successfully.')),
+      );
     });
   }
 
@@ -42,25 +76,19 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   @override
   Widget build(BuildContext context) {
+    // Show a spinner while checking storage for an initial token
+    if (_isInitializing) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    
     // --- 1. Logged In State ---
     if (_userTokens != null) {
-      // In a real app, this would be the HomePage or Dashboard.
-      return Scaffold(
-        appBar: AppBar(title: const Text('Dashboard')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Successfully Logged In!', style: TextStyle(fontSize: 24)),
-              Text('Token received: ${_userTokens!.accessToken.substring(0, 10)}...'),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => setState(() => _userTokens = null),
-                child: const Text('Logout'),
-              ),
-            ],
-          ),
-        ),
+      // Use the HomeScreen and pass the logout handler and token
+      return HomeScreen(
+        onLogout: _handleLogout,
+        accessToken: _userTokens!.accessToken,
       );
     }
 
@@ -68,14 +96,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (_mode == AuthMode.login) {
       return LoginScreen(
         onLoginSuccess: _handleLoginSuccess,
-        // Link to Registration
         onNavigateToRegister: _toggleMode, 
       );
     } else {
       return RegistrationFlow(
-        // The registration flow must now notify the wrapper on success
         onRegistrationSuccess: _handleRegistrationSuccess, 
-        // Link back to Login
         onBackToLogin: _toggleMode, 
       );
     }

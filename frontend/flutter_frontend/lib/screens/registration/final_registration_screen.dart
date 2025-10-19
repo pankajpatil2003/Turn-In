@@ -1,6 +1,7 @@
-// lib/screens/registration/final_registration_screen.dart (No changes needed)
+// lib/screens/registration/final_registration_screen.dart (Final Working Version)
 
 import 'package:flutter/material.dart';
+import 'dart:async'; // REQUIRED: For the Timer class
 import '../../services/auth_service.dart';
 import '../../models/user_model.dart';
 
@@ -30,8 +31,47 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
 
   bool _isLoading = false;
   String _errorMessage = '';
+  String? _usernameErrorText; // State to hold the asynchronous username error
+
+  // Debounce logic for better real-time user feedback
+  Timer? _debounce; 
+
+  // Function to perform the asynchronous username availability check
+  void _performUsernameCheck(String username) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    // Only check if the input is not empty
+    if (username.isEmpty) {
+      setState(() {
+        _usernameErrorText = null;
+      });
+      return;
+    }
+
+    // Start a new timer to wait 500ms after the user stops typing
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      
+      try {
+        final isAvailable = await _authService.checkUsernameAvailability(username);
+        
+        setState(() {
+          if (!isAvailable) {
+            _usernameErrorText = 'This username is already taken. Choose another.';
+          } else {
+            _usernameErrorText = null; // Clear error if available
+          }
+        });
+      } catch (e) {
+        // Handle network error during live check by showing a generic message
+        setState(() {
+          _usernameErrorText = 'Could not check availability.';
+        });
+      }
+    });
+  }
 
   Future<void> _handleRegistration() async {
+    // 1. Run synchronous form validation (checks required fields, password length, etc.)
     if (!_formKey.currentState!.validate()) return;
 
     if (_passwordController.text != _confirmPasswordController.text) {
@@ -40,12 +80,39 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
       });
       return;
     }
+    
+    // Check if real-time check already failed and prevented submission
+    if (_usernameErrorText != null) {
+      // Ensure the error is visible and halt submission
+      return;
+    }
 
     setState(() {
       _isLoading = true;
       _errorMessage = '';
     });
 
+    // 2. Perform FINAL asynchronous username check before sending registration data
+    try {
+      final username = _usernameController.text.trim();
+      final isAvailable = await _authService.checkUsernameAvailability(username);
+
+      if (!isAvailable) {
+        setState(() {
+          _usernameErrorText = 'This username is already taken. Please choose another.';
+          _isLoading = false;
+        });
+        return; // Stop registration
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to verify username: ${e.toString().replaceFirst('Exception: ', '')}';
+        _isLoading = false;
+      });
+      return;
+    }
+    
+    // 3. Complete Registration
     try {
       final registrationData = RegistrationData(
         email: widget.email,
@@ -68,6 +135,16 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel(); // Cancel the timer to prevent memory leaks
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _otpCodeController.dispose();
+    super.dispose();
   }
 
   @override
@@ -107,14 +184,22 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                 ),
                 const SizedBox(height: 15),
 
+                // --- UPDATED: Username TextFormField ---
                 TextFormField(
                   controller: _usernameController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Username',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.person),
+                    errorText: _usernameErrorText, // Use state for async error message
                   ),
-                  validator: (value) => (value == null || value.isEmpty) ? 'Username is required.' : null,
+                  // Run synchronous validation only
+                  validator: (value) => (value == null || value.isEmpty) ? 'Username is required.' : null, 
+                  
+                  // Trigger the real-time asynchronous check on change
+                  onChanged: _performUsernameCheck,
+                  
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                 ),
                 const SizedBox(height: 15),
 
@@ -151,11 +236,12 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                       textAlign: TextAlign.center,
                     ),
                   ),
-                  
+                    
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleRegistration,
+                    // Disable if loading or if the live checker has flagged an error
+                    onPressed: (_isLoading || _usernameErrorText != null) ? null : _handleRegistration,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 15),
                       backgroundColor: Colors.green,
