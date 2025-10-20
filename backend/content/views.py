@@ -38,7 +38,7 @@ def calculate_and_update_rank(feed_instance):
 class PostListCreateView(generics.ListCreateAPIView):
     """
     Handles GET (list feed) and POST (create new post) requests.
-    The POST call relies on the serializer to parse tags from text_content/description,
+    The POST call relies on the serializer to parse feed_types from text_content/description,
     and the signal to update the Feed table.
     """
     queryset = Post.objects.filter(is_published=True).select_related('creator')
@@ -143,25 +143,25 @@ class PostDetailView(generics.RetrieveAPIView):
 
 
 # ----------------------------------------------------------------------
-# 5. Post List By Tags Endpoint (GET /api/content/filter-by-tags/?tags=tag1,tag2,...)
+# 5. Post List By feed_types Endpoint (GET /api/content/filter-by-feed_types/?feed_types=tag1,tag2,...)
 # ----------------------------------------------------------------------
 
-class PostListByTagsView(generics.ListAPIView):
+class PostListByfeed_typesView(generics.ListAPIView):
     """
-    Returns a list of published posts matching a comma-separated list of tags.
+    Returns a list of published posts matching a comma-separated list of feed_types.
     """
     serializer_class = PostListSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         queryset = Post.objects.filter(is_published=True).select_related('creator')
-        tags_param = self.request.query_params.get('tags')
+        feed_types_param = self.request.query_params.get('feed_types')
         
-        if tags_param:
-            tag_list = [tag.strip().upper() for tag in tags_param.split(',') if tag.strip()]
+        if feed_types_param:
+            tag_list = [tag.strip().upper() for tag in feed_types_param.split(',') if tag.strip()]
             
             # Use __overlap for finding posts that share ANY tag in the provided list.
-            queryset = queryset.filter(tags__overlap=tag_list)
+            queryset = queryset.filter(feed_types__overlap=tag_list)
             
         return queryset.order_by('-created_at')
         
@@ -196,12 +196,12 @@ class HypeToggleView(generics.UpdateAPIView):
 
 
 # ----------------------------------------------------------------------
-# 7. Tag/Feed List Endpoint (GET /api/content/tags/)
+# 7. Tag/Feed List Endpoint (GET /api/content/feed_types/)
 # ----------------------------------------------------------------------
 
 class FeedListView(generics.ListAPIView):
     """
-    Returns a sorted list of unique tags (Feed model entries).
+    Returns a sorted list of unique feed_types (Feed model entries).
     Sorting is determined by the 'sort' query parameter.
     """
     queryset = Feed.objects.all()

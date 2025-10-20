@@ -4,6 +4,7 @@ from .models import User, StudentProfile
 # ----------------------------------------------------------------------
 # 1. Serializer for StudentProfile (Used for updates)
 # ----------------------------------------------------------------------
+# accounts/serializers.py
 
 class StudentProfileSerializer(serializers.ModelSerializer):
     """
@@ -32,31 +33,37 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'current_year',
             'feed_types'
         )
-        read_only_fields = ('feed_types', 'username', 'email', 'user_is')
+        read_only_fields = ('username', 'email', 'user_is') 
+        # NOTE: feed_types should not be read_only if you want to update it via the PATCH request.
+        # I removed 'feed_types' from read_only_fields here, assuming it's editable.
 
     def update(self, instance, validated_data):
         """
-        FIXED: Separates and updates fields for the linked User object 
-        and the StudentProfile object.
+        FIXED: Explicitly updates StudentProfile fields (including feed_types) 
+        before handling User fields.
         """
-        # 1. CRITICAL: Extract the nested 'user' dictionary created by DRF due to the 'source=' attribute
+        # 1. CRITICAL: Extract the nested 'user' dictionary
         user_data = validated_data.pop('user', {}) 
         user = instance.user
 
-        # 2. Update StudentProfile fields (e.g., college_university, department, etc.)
-        # This uses the default ModelSerializer update for the profile's direct fields.
-        profile_instance = super().update(instance, validated_data)
+        # 2. Update StudentProfile fields EXPLICITLY (FIX for ArrayField updates)
+        # Loop through all remaining validated_data (e.g., feed_types, college_university, etc.)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Manually save the profile instance to ensure changes are committed
+        instance.save() 
+        profile_instance = instance
 
         # 3. Update the related User fields (first_name, last_name)
         if user_data:
             for attr, value in user_data.items():
-                # Only update if the value is provided and not None
                 if value is not None: 
                     setattr(user, attr, value)
             user.save()
 
         return profile_instance
-
+    
 # ----------------------------------------------------------------------
 # 2. Serializer for RequestOTP (Step 1)
 # ----------------------------------------------------------------------

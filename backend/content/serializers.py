@@ -84,7 +84,7 @@ class PostListSerializer(serializers.ModelSerializer):
             'text_content', 
             'media_file',
             'description',
-            'tags',
+            'feed_types',
             'hype_count',           
             'comment_count',        
             'is_hyped',
@@ -134,16 +134,16 @@ class PostCreateSerializer(serializers.ModelSerializer):
             'text_content',
             'media_file',
             'description',
-            'tags', 
+            'feed_types', 
         ]
 
-    def validate_tags(self, tags):
-        """Cleans and normalizes manually provided tags (or those extracted from text)."""
-        cleaned_tags = [tag.strip().upper() for tag in tags if tag.strip()]
-        return cleaned_tags
+    def validate_feed_types(self, feed_types):
+        """Cleans and normalizes manually provided feed_types (or those extracted from text)."""
+        cleaned_feed_types = [tag.strip().upper() for tag in feed_types if tag.strip()]
+        return cleaned_feed_types
 
     def validate(self, data):
-        """Custom validation to check content types and to extract/normalize tags."""
+        """Custom validation to check content types and to extract/normalize feed_types."""
         content_type = data.get('content_type')
         text_content = data.get('text_content', '')
         media_file = data.get('media_file')
@@ -159,19 +159,19 @@ class PostCreateSerializer(serializers.ModelSerializer):
              raise serializers.ValidationError("Cannot include media file if content type is TEXT.")
 
         # --- 2. Tag Extraction and Cleaning ---
-        provided_tags = set(data.get('tags', []))
+        provided_feed_types = set(data.get('feed_types', []))
         combined_text = f" {text_content} {data.get('description', '')} "
-        extracted_tags = re.findall(r'#(\w+)', combined_text)
+        extracted_feed_types = re.findall(r'#(\w+)', combined_text)
         
-        all_tags = set(tag.strip().upper() for tag in extracted_tags)
-        all_tags.update(provided_tags)
+        all_feed_types = set(tag.strip().upper() for tag in extracted_feed_types)
+        all_feed_types.update(provided_feed_types)
             
-        final_tag_list = list(all_tags)
+        final_tag_list = list(all_feed_types)
 
         if len(final_tag_list) > 10: 
-             raise serializers.ValidationError("A post cannot have more than 10 tags.")
+             raise serializers.ValidationError("A post cannot have more than 10 feed_types.")
              
-        data['tags'] = final_tag_list 
+        data['feed_types'] = final_tag_list 
         
         return data
     

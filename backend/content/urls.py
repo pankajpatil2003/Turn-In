@@ -6,7 +6,7 @@ from .views import (
     PublicUserPostListView,
     FeedListView,
     PostDetailView,         
-    PostListByTagsView,  
+    PostListByfeed_typesView,  
     CommentListCreateView, 
     CommentDestroyView,   
 )
@@ -28,9 +28,9 @@ urlpatterns = [
     # Endpoint: /api/content/<content_id>/
     path('<uuid:content_id>/', PostDetailView.as_view(), name='post-detail'), 
     
-    # 5. Filter by Tags 
-    # Endpoint: /api/content/filter-by-tags/?tags=tag1,tag2
-    path('filter-by-tags/', PostListByTagsView.as_view(), name='post-list-by-tags'),
+    # 5. Filter by feed_types 
+    # Endpoint: /api/content/filter-by-feed_types/?feed_types=tag1,tag2
+    path('filter-by-feed_types/', PostListByfeed_typesView.as_view(), name='post-list-by-feed_types'),
     
     # 6. Interaction (Hype Toggle)
     # Endpoint: /api/content/<content_id>/hype/
@@ -52,7 +52,7 @@ urlpatterns = [
         name='comment-delete'
     ),
     
-    # 9. Feed/Tags List (Ranked/Sorted Tags)
-    # Endpoint: /api/content/tags/
-    path('tags/', FeedListView.as_view(), name='feed-tag-list'), 
+    # 9. Feed/feed_types List (Ranked/Sorted feed_types)
+    # Endpoint: /api/content/feed_types/
+    path('feed_types/', FeedListView.as_view(), name='feed-tag-list'), 
 ]

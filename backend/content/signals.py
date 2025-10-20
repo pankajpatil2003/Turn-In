@@ -35,10 +35,10 @@ def update_feed_statistics(sender, instance, created, **kwargs):
     if not instance.is_published:
         return
 
-    post_tags = instance.tags
+    post_feed_types = instance.feed_types
     now = timezone.now()
 
-    for raw_tag_name in post_tags:
+    for raw_tag_name in post_feed_types:
         # Final cleanup ensures consistency with serializer logic
         tag_name = raw_tag_name.strip().upper() 
 

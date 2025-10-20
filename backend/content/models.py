@@ -57,8 +57,8 @@ class Post(models.Model):
     # description (Used for short summary or main post title)
     description = models.CharField(max_length=255, blank=True)
     
-    # tags 
-    tags = ArrayField(
+    # feed_types 
+    feed_types = ArrayField(
         models.CharField(max_length=50),
         default=list,
         blank=True
@@ -167,7 +167,7 @@ class Comment(models.Model):
 
 class Feed(models.Model):
     """
-    Tracks statistics for tags used in posts, used for feed ranking and personalization.
+    Tracks statistics for feed_types used in posts, used for feed ranking and personalization.
     """
     
     # tag (The unique tag name, e.g., 'SCIENCE', 'TECH', 'EVENTS')

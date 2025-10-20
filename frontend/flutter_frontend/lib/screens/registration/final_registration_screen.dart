@@ -1,4 +1,4 @@
-// lib/screens/registration/final_registration_screen.dart (Final Working Version)
+// lib/screens/registration/final_registration_screen.dart (Updated Validation)
 
 import 'package:flutter/material.dart';
 import 'dart:async'; // REQUIRED: For the Timer class
@@ -38,6 +38,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
 
   // Function to perform the asynchronous username availability check
   void _performUsernameCheck(String username) {
+    // Clear any previous debounce timer
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
     // Only check if the input is not empty
@@ -64,20 +65,17 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
       } catch (e) {
         // Handle network error during live check by showing a generic message
         setState(() {
-          _usernameErrorText = 'Could not check availability.';
+          _usernameErrorText = 'Could not check availability. Check connection.';
         });
       }
     });
   }
 
   Future<void> _handleRegistration() async {
-    // 1. Run synchronous form validation (checks required fields, password length, etc.)
-    if (!_formKey.currentState!.validate()) return;
-
-    if (_passwordController.text != _confirmPasswordController.text) {
-      setState(() {
-        _errorMessage = 'Passwords do not match.';
-      });
+    // 1. Run synchronous form validation (checks required fields, password length, matching, etc.)
+    if (!_formKey.currentState!.validate()) {
+      // Clear general error message if form validation failed
+      setState(() { _errorMessage = ''; });
       return;
     }
     
@@ -184,7 +182,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                 ),
                 const SizedBox(height: 15),
 
-                // --- UPDATED: Username TextFormField ---
+                // --- Username TextFormField with Debounced Async Validation ---
                 TextFormField(
                   controller: _usernameController,
                   decoration: InputDecoration(
@@ -211,10 +209,17 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.lock),
                   ),
+                  // Note: onChanged is important here to re-validate confirm field live
+                  onChanged: (val) {
+                    if (_confirmPasswordController.text.isNotEmpty) {
+                      _formKey.currentState?.validate();
+                    }
+                  },
                   validator: (value) => (value == null || value.length < 8) ? 'Password must be at least 8 characters.' : null,
                 ),
                 const SizedBox(height: 15),
 
+                // --- UPDATED: Confirm Password now checks for matching live ---
                 TextFormField(
                   controller: _confirmPasswordController,
                   obscureText: true,
@@ -223,7 +228,16 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.lock_reset),
                   ),
-                  validator: (value) => (value == null || value.isEmpty) ? 'Confirm your password.' : null,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Confirm your password.';
+                    }
+                    if (value != _passwordController.text) {
+                      return 'Passwords do not match.';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 20),
                 

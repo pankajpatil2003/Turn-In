@@ -43,7 +43,7 @@ class PostAdmin(admin.ModelAdmin):
         'updated'
     )
     
-    search_fields = ('content_id', 'creator__username', 'description', 'tags')
+    search_fields = ('content_id', 'creator__username', 'description', 'feed_types')
     list_filter = ('content_type', 'posted_by', 'is_published', 'created_at')
     
     fieldsets = (
@@ -53,7 +53,7 @@ class PostAdmin(admin.ModelAdmin):
                 ('content_type', 'media_file'),
                 'description',
                 'text_content',
-                'tags',
+                'feed_types',
             )
         }),
         ('Status and Dates', {

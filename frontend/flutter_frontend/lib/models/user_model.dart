@@ -1,4 +1,4 @@
-// lib/models/user_model.dart (Updated with feedTypes in toPatchJson)
+// lib/models/user_model.dart
 
 // Used for the final registration API call
 class RegistrationData {
@@ -37,9 +37,10 @@ class AuthTokens {
   AuthTokens({required this.accessToken, required this.refreshToken});
 
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
+    // Ensuring non-nullable strings have a safe fallback
     return AuthTokens(
-      accessToken: json['access'] as String,
-      refreshToken: json['refresh'] as String,
+      accessToken: json['access'] as String? ?? '',
+      refreshToken: json['refresh'] as String? ?? '',
     );
   }
 }
@@ -52,7 +53,9 @@ class UserProfile {
   final String username;
   final String email;
   final bool isActive;
-  final List<String> feedTypes; // Should be treated as editable/updatable
+  
+  // 🔥 FIX 1: Make feedTypes nullable (List<String>?) to handle 'null' from API
+  final List<String>? feedTypes; 
 
   // Editable fields
   String? firstName;
@@ -67,7 +70,8 @@ class UserProfile {
     required this.username,
     required this.email,
     required this.isActive,
-    required this.feedTypes,
+    // Note: feedTypes is now optional in the constructor
+    this.feedTypes, 
     this.firstName,
     this.lastName,
     this.profileImage,
@@ -78,15 +82,22 @@ class UserProfile {
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
+    final List<dynamic>? feedTypesJson = json['feed_types'] as List<dynamic>?;
+    
     return UserProfile(
-      username: json['username'] as String,
-      email: json['email'] as String,
+      // Non-nullable fields with fallbacks
+      username: json['username'] as String? ?? 'Unknown',
+      email: json['email'] as String? ?? 'No Email',
       isActive: json['is_active'] as bool? ?? false,
-      feedTypes: (json['feed_types'] as List<dynamic>?)?.cast<String>() ?? [],
       
+      // Handle the list safely: cast to List<String> or return null
+      // This is necessary because the field is now nullable
+      feedTypes: feedTypesJson?.cast<String>(),
+      
+      // Nullable fields
       firstName: json['first_name'] as String?,
       lastName: json['last_name'] as String?,
-      profileImage: json['profile_image'] as String?,
+      profileImage: json['profile_image'] as String?, 
       collegeUniversity: json['college_university'] as String?,
       department: json['department'] as String?,
       course: json['course'] as String?,
@@ -94,25 +105,38 @@ class UserProfile {
     );
   }
 
-  /// Creates a map of ONLY the editable fields, suitable for a PATCH request.
+  /// Creates a map of ONLY the fields we intend to PATCH.
+  /// We only include fields that have been explicitly set (i.e., are not null).
   Map<String, dynamic> toPatchJson() {
-    // Note: We include profileImage here just to ensure it is not unintentionally
-    // cleared if the user profile includes it, but the profile screen handles
-    // image upload separately via multipart/form-data.
-    return {
-      // --- IMPORTANT ADDITION: Include feedTypes for updating the feed preferences ---
-      'feed_types': feedTypes, 
-      // --- END IMPORTANT ADDITION ---
+    final Map<String, dynamic> data = {};
 
-      if (firstName != null) 'first_name': firstName,
-      if (lastName != null) 'last_name': lastName,
-      if (collegeUniversity != null) 'college_university': collegeUniversity,
-      if (department != null) 'department': department,
-      if (course != null) 'course': course,
-      if (currentYear != null) 'current_year': currentYear,
-      
-      // If the API accepts this field for non-image updates, it ensures the URL is not accidentally removed.
-      if (profileImage != null) 'profile_image': profileImage, 
-    };
+    // 🔥 FIX 2: Only include feed_types if it is NOT null. 
+    // This allows profile_screen.dart to send feedTypes: null during image 
+    // upload without causing a server validation error.
+    if (feedTypes != null) {
+      data['feed_types'] = feedTypes; 
+    }
+
+    // Include all editable fields only if they are not null.
+    if (firstName != null) {
+      data['first_name'] = firstName;
+    }
+    if (lastName != null) {
+      data['last_name'] = lastName;
+    }
+    if (collegeUniversity != null) {
+      data['college_university'] = collegeUniversity;
+    }
+    if (department != null) {
+      data['department'] = department;
+    }
+    if (course != null) {
+      data['course'] = course;
+    }
+    if (currentYear != null) {
+      data['current_year'] = currentYear;
+    }
+    
+    return data;
   }
 }
