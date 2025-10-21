@@ -1,5 +1,3 @@
-// lib/screens/home_screen.dart
-
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../models/user_model.dart';
@@ -119,70 +117,74 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Widget to display individual content post (UPDATED for robust image loading)
+  // Widget to display individual content post (UPDATED for larger image and centering)
   Widget _buildContentCard(ContentPost post) {
     // Determine content widget based on type
     Widget contentWidget;
     
     // CRITICAL CHECK: Ensure mediaFileUrl is not null AND starts with 'http'
     bool isValidImageUrl = post.mediaFileUrl != null && 
-                          (post.mediaFileUrl!.startsWith('http://') || post.mediaFileUrl!.startsWith('https://')); 
+                            (post.mediaFileUrl!.startsWith('http://') || post.mediaFileUrl!.startsWith('https://')); 
     print('🔵 Attempting to load image from URL: ${post.mediaFileUrl}');
 
     if (post.contentType == 'IMAGE' && isValidImageUrl) {
       contentWidget = Padding(
         padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8.0),
-          child: Image.network(
-            post.mediaFileUrl!,
-            fit: BoxFit.cover,
-            // 💡 FIX: Reserve space for the image to prevent UI jump/collapse on load failure
-            height: 250, 
-            
-            // --- Loading Builder for Progress Indicator ---
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Center(
-                child: SizedBox(
-                  height: 250, // Match reserved height
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null 
-                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! 
-                          : null,
+        // Wrap the entire image container with a Center widget.
+        child: Center( 
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8.0),
+            child: Image.network(
+              post.mediaFileUrl!,
+              // Use BoxFit.contain to ensure the whole vertical image is visible.
+              fit: BoxFit.contain,
+              // 💡 CHANGE: Increased height to 400 for better visibility
+              height: 400, 
+              
+              // --- Loading Builder for Progress Indicator ---
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Center(
+                  child: SizedBox(
+                    height: 400, // Match reserved height
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        value: loadingProgress.expectedTotalBytes != null 
+                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! 
+                            : null,
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
-            
-            // --- Error Builder for Failure Feedback ---
-            errorBuilder: (context, error, stackTrace) {
-              // Log the specific URL that failed (helpful for debugging API data)
-              print('🔴 Image Load Failed for: ${post.mediaFileUrl}');
+                );
+              },
               
-              return Container(
-                height: 250, // Match reserved height
-                width: double.infinity,
-                color: Colors.red.shade50,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.broken_image, size: 50, color: Colors.red.shade400),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Image Failed to Load (Invalid URL/Network)', 
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.red, fontSize: 14)
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      );
+              // --- Error Builder for Failure Feedback ---
+              errorBuilder: (context, error, stackTrace) {
+                // Log the specific URL that failed (helpful for debugging API data)
+                print('🔴 Image Load Failed for: ${post.mediaFileUrl}');
+                
+                return Container(
+                  height: 400, // Match reserved height
+                  width: double.infinity,
+                  color: Colors.red.shade50,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.broken_image, size: 50, color: Colors.red.shade400),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Image Failed to Load (Invalid URL/Network)', 
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.red, fontSize: 14)
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ), // End of ClipRRect
+        ), // End of Center widget
+      ); // End of Padding
     } else if (post.contentType == 'TEXT' && (post.textContent != null && post.textContent!.isNotEmpty)) {
       contentWidget = Padding(
         padding: const EdgeInsets.only(bottom: 12.0, top: 8.0),
@@ -229,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             
-            // Content (Text or Image) - Now robust
+            // Content (Text or Image) - Now centered and larger
             contentWidget,
             
             // Description / Caption
@@ -240,8 +242,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
 
             // Tags
-            // 🔥 FIX 2: Use null-aware access (?.) and null coalescing (?? [])
-            // for post.feedTypes in case it is nullable in ContentPost model.
             Wrap(
               spacing: 6.0,
               children: (post.feedTypes ?? []).map((tag) => Chip(
@@ -373,37 +373,47 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- PROFILE CARD START ---
+                    // --- PROFILE CARD START (SHRUNK WITH REFRESH BUTTON) ---
                     Card(
                       elevation: 4,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       margin: const EdgeInsets.only(bottom: 20),
                       child: Padding(
-                        padding: const EdgeInsets.all(16.0),
+                        // ⬇️ CHANGE 1: Reduced vertical padding further to 8.0
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             CircleAvatar(
-                              radius: 35,
+                              // ⬇️ CHANGE 2: Reduced radius from 28 to 24
+                              radius: 24, 
                               backgroundColor: Colors.teal.shade100,
                               // CRITICAL: Ensure profileImage is also checked for validity/null
                               backgroundImage: (userData.profileImage != null && userData.profileImage!.isNotEmpty)
                                   ? NetworkImage(userData.profileImage!) 
                                   : null, 
                               child: (userData.profileImage == null || userData.profileImage!.isEmpty)
-                                  ? const Icon(Icons.person, size: 40, color: Colors.teal)
+                                  ? const Icon(Icons.person, size: 28, color: Colors.teal) 
                                   : null,
                             ),
-                            const SizedBox(width: 20),
+                            const SizedBox(width: 16),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Welcome back!', style: TextStyle(fontSize: 16, color: Colors.grey)),
+                                const Text('Welcome back!', style: TextStyle(fontSize: 14, color: Colors.grey)), 
                                 Text(
                                   userData.username, 
-                                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)
+                                  // ⬇️ CHANGE 3: Reduced font size from 22 to 20
+                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
                                 ),
                               ],
+                            ),
+                            // ⬇️ NEW: Spacer to push the refresh button to the right
+                            const Spacer(), 
+                            // ⬇️ NEW: Refresh Button
+                            IconButton(
+                              icon: const Icon(Icons.refresh, color: Colors.teal),
+                              onPressed: _fetchUserData, // Call the main refresh method
                             ),
                           ],
                         ),

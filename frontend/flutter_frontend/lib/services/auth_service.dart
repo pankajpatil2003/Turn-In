@@ -13,7 +13,7 @@ class AuthService {
 
 	final TokenStorageService _tokenService = TokenStorageService();
 
-	// 🔥 NEW METHOD: TOGGLE HYPE STATUS
+	//TOGGLE HYPE STATUS
 	/// Toggles the hype status for a given content post.
 	/// POST /api/content/{content_id}/hype/
 	/// Returns a map containing the updated 'hyped' status and 'hype_count'.
@@ -59,7 +59,6 @@ class AuthService {
 			rethrow;
 		}
 	}
-	// 🔥 END NEW METHOD
 
 	// 0. Check Username Availability API (GET)
 	/// Checks if a username is already taken.
@@ -88,7 +87,7 @@ class AuthService {
 	}
 
 
-	// 0.5 NEW: Fetch Available feed_types API (GET)
+	// 0.5 : Fetch Available feed_types API (GET)
 	/// Fetches feed_types from the server, filtered by search term and sorted by method.
 	/// Uses the /api/content/feed_types/ endpoint.
 	Future<List<TagInfo>> fetchAvailablefeed_types({String? search, String sort = 'rank'}) async {
@@ -127,7 +126,7 @@ class AuthService {
 	}
 
 
-	// NEW: Fetch Social Media Posts
+	//Fetch Social Media Posts
 	/// Fetches content posts filtered by the provided feed types (passed to the API as 'feed_types').
 	Future<List<ContentPost>> fetchContentByFeedTypes(List<String> feedTypes) async {
 		// 1. Format the feedTypes for the API query, using 'feed_types' as the query parameter name
@@ -359,10 +358,10 @@ class AuthService {
 			request.headers['Authorization'] = 'Bearer $accessToken';
 
             // --- CRITICAL FIX: Determine and set Content-Type ---
-            final String? fileName = imageXFile.name;
+            final String fileName = imageXFile.name;
             // Default to 'jpeg' if no extension or unknown extension
             String fileExtension = 'jpeg'; 
-            if (fileName != null && fileName.contains('.')) {
+            if (fileName.contains('.')) {
                 fileExtension = fileName.split('.').last.toLowerCase();
             }
             

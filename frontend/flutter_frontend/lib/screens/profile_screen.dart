@@ -7,7 +7,6 @@ import 'dart:async';
 import '../services/auth_service.dart';
 import '../models/user_model.dart';
 import '../models/content_model.dart'; // <--- Assume TagInfo is defined here
-import '../config/api_config.dart';
 
 // Assuming UserProfile, TagInfo, and AuthService are defined elsewhere and correctly imported.
 
@@ -282,7 +281,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           CircleAvatar(
             radius: 60,
             backgroundColor: Colors.grey.shade200,
-            backgroundImage: getImageProvider() as ImageProvider?,
+            backgroundImage: getImageProvider(),
             child: _pickedImage == null && (profile.profileImage == null || profile.profileImage!.isEmpty)
                 ? Icon(Icons.person, size: 60, color: Colors.grey.shade700)
                 : null,

@@ -12,15 +12,25 @@ class CreatorProfile {
   });
 
   factory CreatorProfile.fromJson(Map<String, dynamic> json) {
-    // The server JSON uses 'user_is' and 'profile' (not 'profile_image_url')
-    // We are ensuring non-nullable fields have a fallback.
+    
+    // 1. ✅ FIX: Always read the correct username from the top level 'creator' map.
+    final String resolvedUsername = json['username'] as String? ?? 'Unknown Creator';
+    
+    // Safely get the nested 'profile' map
+    final Map<String, dynamic>? nestedProfileJson = json['profile'] as Map<String, dynamic>?;
+    
+    // 2. ✅ FIX: Extract 'profile_image' ONLY IF the nested 'profile' map exists.
+    final String? resolvedProfileImage = nestedProfileJson != null 
+        ? nestedProfileJson['profile_image'] as String? 
+        : null;
+        
     return CreatorProfile(
-      // ✅ FIX 1: The API JSON uses 'user_is' for the ID.
+      // The server JSON uses 'user_is' for the ID.
       userId: json['user_is'] as String? ?? '', 
-      username: json['username'] as String? ?? 'Unknown Creator',
+      username: resolvedUsername, // <-- THIS IS THE PRIMARY FIX
       
-      // The API JSON uses 'profile' for the profile image URL.
-      profileImageUrl: json['profile'] as String?, 
+      // Use the safely extracted URL from the nested profile
+      profileImageUrl: resolvedProfileImage, 
     );
   }
 }
@@ -76,10 +86,11 @@ class ContentPost {
     // Handle the CreatorProfile parsing safely
     CreatorProfile creatorProfile;
     try {
-        creatorProfile = CreatorProfile.fromJson(json['creator'] as Map<String, dynamic>? ?? {});
+      // Pass the 'creator' JSON block to CreatorProfile.fromJson
+      creatorProfile = CreatorProfile.fromJson(json['creator'] as Map<String, dynamic>? ?? {});
     } catch (e) {
-        // Fallback to a default profile if the creator object is missing or malformed
-        creatorProfile = CreatorProfile(userId: '0', username: 'Deleted User');
+      // Fallback to a default profile if the creator object is missing or malformed
+      creatorProfile = CreatorProfile(userId: '0', username: 'Deleted User');
     }
     
     return ContentPost(
@@ -90,8 +101,7 @@ class ContentPost {
       // Nullable fields
       textContent: json['text_content'] as String?,
       
-      // ✅ FIX 2: Read the 'media_file' field directly from the API response JSON.
-      // This is the source of truth for the image URL.
+      // Read the 'media_file' field directly from the API response JSON.
       mediaFileUrl: json['media_file'] as String?,
       
       // Non-nullable fields with defaults
@@ -167,9 +177,8 @@ class TagInfo {
     return TagInfo(
       tag: json['tag'] as String? ?? '',
       totalUsed: json['total_used'] as int? ?? 0,
-      // The API uses 'rank' with a capital 'R' here, but based on your previous models 
-      // I'll assume it should be lowercased to 'rank' or use the safest cast.
-      // Assuming 'rank' is the intended field from your previous models.
+      
+      // Safely cast 'rank'
       rank: (json['rank'] as num?)?.toDouble() ?? 0.0, 
       
       // Critical null checks for required DateTimes
