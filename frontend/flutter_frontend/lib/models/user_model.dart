@@ -47,6 +47,27 @@ class AuthTokens {
 
 // ----------------------------------------------------------------------
 
+// NEW MODEL: Used for creating a new content post (text and feed type)
+class ContentCreationData {
+  final String text;
+  final String feedType;
+
+  ContentCreationData({
+    required this.text,
+    required this.feedType,
+  });
+
+  /// Used for sending text fields in a Multipart request.
+  Map<String, dynamic> toJson() {
+    return {
+      'text': text,
+      'feed_type': feedType,
+    };
+  }
+}
+
+// ----------------------------------------------------------------------
+
 /// NEW MODEL: Used to handle the full user profile data received from the /api/profile/ endpoint.
 class UserProfile {
   // Non-editable fields
@@ -54,7 +75,7 @@ class UserProfile {
   final String email;
   final bool isActive;
   
-  // 🔥 FIX 1: Make feedTypes nullable (List<String>?) to handle 'null' from API
+  // FIX 1: Make feedTypes nullable (List<String>?) to handle 'null' from API
   final List<String>? feedTypes; 
 
   // Editable fields
@@ -110,9 +131,7 @@ class UserProfile {
   Map<String, dynamic> toPatchJson() {
     final Map<String, dynamic> data = {};
 
-    // 🔥 FIX 2: Only include feed_types if it is NOT null. 
-    // This allows profile_screen.dart to send feedTypes: null during image 
-    // upload without causing a server validation error.
+    // FIX 2: Only include feed_types if it is NOT null. 
     if (feedTypes != null) {
       data['feed_types'] = feedTypes; 
     }
