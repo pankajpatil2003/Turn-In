@@ -117,7 +117,7 @@ class _FinalRegistrationScreenState extends State<FinalRegistrationScreen> {
         username: _usernameController.text.trim(),
         password: _passwordController.text,
         passwordConfirm: _confirmPasswordController.text,
-        otpCode: _otpCodeController.text.trim(),
+        otp: _otpCodeController.text.trim(),
       );
 
       await _authService.completeRegistration(registrationData);

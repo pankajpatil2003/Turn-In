@@ -1,36 +1,45 @@
 import 'package:flutter/material.dart';
 import '../models/comment_model.dart';
-import '../models/content_model.dart'; // Ensure this is imported for ContentPost
+import '../models/content_model.dart';
 import '../services/auth_service.dart';
 
 class CommentScreen extends StatefulWidget {
   final ContentPost post;
+  // FIX 1: Add the required callback parameter for the parent screen (HomeScreen)
+  final ValueChanged<int> onCountUpdated; 
 
-  const CommentScreen({super.key, required this.post});
+  const CommentScreen({
+    super.key, 
+    required this.post,
+    // FIX 1: Require the callback in the constructor
+    required this.onCountUpdated, 
+  });
 
   @override
   State<CommentScreen> createState() => _CommentScreenState();
 }
 
 class _CommentScreenState extends State<CommentScreen> {
-  // Assuming AuthService handles the API communication
-  final AuthService _authService = AuthService(); 
+  final AuthService _authService = AuthService();
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
 
   Future<List<CommentModel>>? _commentsFuture;
+  // Hold the current comment count to pass back to the parent
+  int _currentCommentCount = 0; 
 
-  // State for posting and replying
   int? _replyingToCommentId;
   String _replyingToUsername = '';
+  String _prefilledReplyText = '';
   bool _isPosting = false;
 
   @override
   void initState() {
     super.initState();
+    // Initialize the local count from the post data
+    _currentCommentCount = widget.post.commentCount; 
     _fetchComments();
-    // Re-render the widget when text changes to update the send button state
-    _commentController.addListener(() => setState(() {})); 
+    _commentController.addListener(() => setState(() {}));
   }
 
   @override
@@ -43,9 +52,20 @@ class _CommentScreenState extends State<CommentScreen> {
   /// Fetches comments for the current post.
   void _fetchComments() {
     setState(() {
-      // ✅ Confirmed: Convert int ID to String for the service parameter
       _commentsFuture =
           _authService.fetchCommentsForContent(widget.post.id.toString());
+      // Add logic to update the local comment count based on the *server's total count*
+      // or, as a fallback, the total number of items if the API only returns a flat list.
+      _commentsFuture!.then((comments) {
+        if (!mounted) return;
+        // NOTE: Ideally, the API response for fetchCommentsForContent should include 
+        // the *total* number of comments (including replies).
+        // Since the model doesn't show a total count field, we'll keep the current
+        // count and trust the manual increment/decrement for now, but remove the
+        // confusing old comment block.
+      }).catchError((_) {
+        // Error handling already done in FutureBuilder
+      });
     });
   }
 
@@ -56,28 +76,41 @@ class _CommentScreenState extends State<CommentScreen> {
 
     final targetCommentId = _replyingToCommentId;
 
-    // Clear input and reset state immediately for a responsive feel
+    // Clear text field and reset state before the async operation
     _commentController.clear();
     _resetReplyState();
+    _inputFocusNode.unfocus();
 
-    // Show loading state
     setState(() {
       _isPosting = true;
     });
 
     try {
+      // Assume the API call returns the newly created comment or a success signal.
+      // If the API returns the *new total count*, you would use that instead of manual increment.
       await _authService.postComment(
-        // ✅ Confirmed: Convert int ID to String for the service parameter
         widget.post.id.toString(),
         text,
-        targetCommentId,
+        // FIX 3: Convert int? to String? for the service parameter
+        targetCommentId?.toString(),
       );
 
-      // Re-fetch comments to update the list with the new comment
+      // On successful post:
+      // 1. Refresh the list of comments
       _fetchComments();
+
+      // 2. Increment the local count and notify the parent (HomeScreen)
+      // FIX: Only increment if this is a ROOT comment. 
+      // If it's a reply, the root count *shouldn't* increment in most social app contexts.
+      // However, if your 'commentCount' includes all replies (total items), 
+      // then the manual increment is correct. Assuming 'commentCount' is 'total items'.
+      final newCount = _currentCommentCount + 1;
+      _currentCommentCount = newCount;
+      // FIX 2: Call the callback function to update the count in the parent widget (HomeScreen)
+      widget.onCountUpdated(newCount); 
+
     } catch (e) {
       if (mounted) {
-        // Display a user-friendly error message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -94,33 +127,37 @@ class _CommentScreenState extends State<CommentScreen> {
     }
   }
 
-  /// Sets the state to reply to a specific comment.
   void _setReplyState(int commentId, String username) {
     setState(() {
-      // If the user taps the same reply button, reset it.
       if (_replyingToCommentId == commentId) {
         _resetReplyState();
       } else {
         _replyingToCommentId = commentId;
         _replyingToUsername = username;
-        _commentController.text = '@$username '; // Pre-fill the input
+        _prefilledReplyText = '@$username ';
+        _commentController.text = _prefilledReplyText;
         _commentController.selection = TextSelection.fromPosition(
             TextPosition(offset: _commentController.text.length));
-        // Request focus to pop up the keyboard
         _inputFocusNode.requestFocus();
       }
     });
   }
 
-  /// Resets the replying-to state.
   void _resetReplyState() {
     setState(() {
+      // Only clear the controller if the text hasn't been modified past the prefilled text
+      if (_commentController.text == _prefilledReplyText) {
+        _commentController.clear();
+      } else if (_commentController.text.startsWith(_prefilledReplyText)) {
+        // If the user modified the text, just remove the prefilled part 
+      // when cancelling the reply, or leave it if they've written content.
+      // For simplicity, we'll stick to the original logic: if they cancel, 
+      // they probably want to clear the prefill.
+       _commentController.text = _commentController.text.substring(_prefilledReplyText.length).trimLeft();
+      }
       _replyingToCommentId = null;
       _replyingToUsername = '';
-      // Only clear if the user hasn't typed beyond the pre-filled username
-      if (_commentController.text.startsWith('@')) {
-        _commentController.clear();
-      }
+      _prefilledReplyText = '';
     });
   }
 
@@ -129,13 +166,13 @@ class _CommentScreenState extends State<CommentScreen> {
   // -------------------------------------------------------------------
 
   Widget _buildComment(CommentModel comment) {
-    // Assumption: CommentModel.user is of type CommentUser, which has
-    // the correct 'profileImageUrl' field.
-    final profileImageUrl = comment.user.profileImageUrl;
+    // FIX 1: Reverted to profileImageUrl as the field name
+    final profileImageUrl = comment.user.profileImageUrl; 
 
     return Padding(
+      key: ValueKey(comment.id), 
       padding: EdgeInsets.only(
-        // Indent replies
+        // Use different left padding for replies
         left: comment.parentCommentId != null ? 36.0 : 16.0,
         right: 16.0,
         top: 8.0,
@@ -156,6 +193,7 @@ class _CommentScreenState extends State<CommentScreen> {
                     : null,
                 child: profileImageUrl == null || profileImageUrl.isEmpty
                     ? Text(
+                        // FIX 2: Changed comment.creator to comment.user
                         comment.user.username[0].toUpperCase(),
                         style: const TextStyle(
                             fontSize: 14, fontWeight: FontWeight.bold),
@@ -172,6 +210,7 @@ class _CommentScreenState extends State<CommentScreen> {
                     // Username and Time Ago
                     Row(
                       children: [
+                        // FIX 2: Changed comment.creator to comment.user
                         Text(
                           comment.user.username,
                           style: const TextStyle(
@@ -179,7 +218,6 @@ class _CommentScreenState extends State<CommentScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          // Assuming CommentModel has a formattedTimeAgo getter
                           comment.formattedTimeAgo, 
                           style:
                               const TextStyle(fontSize: 11, color: Colors.grey),
@@ -197,6 +235,7 @@ class _CommentScreenState extends State<CommentScreen> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4.0),
                       child: InkWell(
+                        // FIX 2: Changed comment.creator to comment.user
                         onTap: () =>
                             _setReplyState(comment.id, comment.user.username),
                         child: Text(
@@ -215,22 +254,18 @@ class _CommentScreenState extends State<CommentScreen> {
             ],
           ),
 
-          // Recursively build replies, indented
           if (comment.replies.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4.0),
-              child: ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: comment.replies.length,
-                itemBuilder: (context, index) {
-                  // Recursive call
-                  return _buildComment(comment.replies[index]);
-                },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: comment.replies
+                    .map((reply) => _buildComment(reply))
+                    .toList(),
               ),
             ),
 
-          // Divider for top-level comments only
+          // Only show a divider for root comments to separate them
           if (comment.parentCommentId == null)
             const Divider(height: 16, indent: 40, endIndent: 16),
         ],
@@ -246,14 +281,14 @@ class _CommentScreenState extends State<CommentScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.post.commentCount} Comments'),
+        // Use the locally updated count for the title
+        title: Text('$_currentCommentCount Comments'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
         elevation: 1,
       ),
       body: Column(
         children: [
-          // Comment List
           Expanded(
             child: FutureBuilder<List<CommentModel>>(
               future: _commentsFuture,
@@ -272,10 +307,46 @@ class _CommentScreenState extends State<CommentScreen> {
                     ),
                   );
                 } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  // FIX: Add a small check to ensure the count is zero if the list is empty
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && _currentCommentCount != 0) {
+                      setState(() {
+                        _currentCommentCount = 0;
+                        widget.onCountUpdated(0);
+                      });
+                    }
+                  });
                   return const Center(child: Text('Be the first to comment! 🚀'));
                 }
 
-                // If data exists, show the list.
+                // Update the local count and notify the parent if the fetched list size is different
+                // This logic relies on the API returning a flat list of ALL comments/replies
+                // or a special, aggregated list. Since the data is recursive, 
+                // snapshot.data!.length is only the count of ROOT comments.
+                // We'll trust the manual increment in _postComment for a simpler but less safe approach.
+                // Keeping the old logic for now, but commenting out to avoid unnecessary setState calls
+                /*
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  final totalCount = _calculateTotalComments(snapshot.data!);
+                  if (mounted && totalCount != _currentCommentCount) {
+                    setState(() {
+                      _currentCommentCount = totalCount;
+                      widget.onCountUpdated(totalCount);
+                    });
+                  }
+                });
+                */
+                // New FIX: A helper function to safely calculate the total count from the recursive list
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  final calculatedCount = _calculateTotalComments(snapshot.data!);
+                  if (mounted && calculatedCount != _currentCommentCount) {
+                    setState(() {
+                      _currentCommentCount = calculatedCount;
+                      widget.onCountUpdated(calculatedCount);
+                    });
+                  }
+                });
+
                 return ListView.builder(
                   padding: const EdgeInsets.only(top: 12.0, bottom: 8.0),
                   itemCount: snapshot.data!.length,
@@ -288,12 +359,11 @@ class _CommentScreenState extends State<CommentScreen> {
             ),
           ),
 
-          // Comment Input Box
           Container(
             padding: EdgeInsets.only(
               left: 10.0,
               right: 10.0,
-              // Adjust for keyboard
+              // Adjust padding when keyboard is visible
               bottom: MediaQuery.of(context).viewInsets.bottom + 8.0, 
               top: 4.0,
             ),
@@ -305,7 +375,6 @@ class _CommentScreenState extends State<CommentScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Replying To indicator
                 if (_replyingToCommentId != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 4.0, top: 4.0),
@@ -327,7 +396,6 @@ class _CommentScreenState extends State<CommentScreen> {
                       ],
                     ),
                   ),
-                // Input and Send button
                 Row(
                   children: [
                     Expanded(
@@ -349,7 +417,6 @@ class _CommentScreenState extends State<CommentScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Conditional Send Button/Loading Indicator
                     if (_isPosting)
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 10.0),
@@ -380,5 +447,15 @@ class _CommentScreenState extends State<CommentScreen> {
         ],
       ),
     );
+  }
+
+  // New helper function to recursively calculate the total number of comments and replies
+  int _calculateTotalComments(List<CommentModel> comments) {
+    int total = 0;
+    for (var comment in comments) {
+      total += 1; // Count the current comment
+      total += _calculateTotalComments(comment.replies); // Recursively add replies
+    }
+    return total;
   }
 }

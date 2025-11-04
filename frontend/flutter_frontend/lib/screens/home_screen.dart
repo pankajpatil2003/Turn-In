@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../models/user_model.dart'; // Ensure this path is correct
-import '../models/content_model.dart'; // Ensure this path is correct
+import '../models/user_model.dart' as user_models; // ⬅️ FIX 1: Prefix for User models
+import '../models/content_model.dart' as content_models; // ⬅️ FIX 1: Prefix for Content models
 import 'profile_screen.dart';
 import 'comment_screen.dart';
+import 'post_creation_screen.dart';
 import 'dart:async';
+import 'dart:developer';
 
 // Enum for menu options
 enum UserMenuOption { profile, logout }
@@ -24,16 +26,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Assuming AuthService can be instantiated without an access token
   final AuthService _authService = AuthService();
-  
-  // 1. CRITICAL: Separate future for UserData to drive the outer FutureBuilder
-  late Future<UserProfile> _userDataFuture; 
-  // 2. Separate future for the Content Feed
-  Future<List<ContentPost>>? _contentFeedFuture;
+
+  // CRITICAL: Separate future for UserData to drive the outer FutureBuilder
+  late Future<user_models.UserProfile> _userDataFuture;
+  // Separate future for the Content Feed
+  Future<List<content_models.ContentPost>>? _contentFeedFuture; // ⬅️ Use prefixed type
 
   // Local cache of posts for easy update access (e.g., hype status)
-  List<ContentPost> _currentPosts = [];
+  List<content_models.ContentPost> _currentPosts = []; // ⬅️ Use prefixed type
 
   @override
   void initState() {
@@ -43,27 +44,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // A single method to fetch user data AND trigger the content feed fetch
-  // This is used for initial load and pull-to-refresh.
-  Future<UserProfile> _fetchUserDataAndFeedChain() async {
+  // Also serves as the onRefresh callback for the RefreshIndicator
+  Future<user_models.UserProfile> _fetchUserDataAndFeedChain() async {
     // 1. Fetch User Data
     try {
       final userData = await _authService.getUserData();
 
-      // CRITICAL: Check if component is still mounted before calling setState 
       if (!mounted) {
-        // Return a dummy value if unmounted, as the caller (RefreshIndicator)
-        // expects a Future<UserProfile> to complete.
-        return userData; 
+        return userData;
       }
-      
-      // 2. Trigger Content Feed Fetch based on new user data (feed types)
-      final feedTypes = userData.feedTypes ?? [];
 
-      if (feedTypes.isNotEmpty) {
-        // Set the content feed future which will be awaited internally
-        await _fetchContentFeed(feedTypes);
+      // Map List<TagInfo> (userData.feedTypes) to List<String> (feedTypeStrings)
+      // This is the correct logic established previously.
+      final feedTypeStrings = userData.feedTypes
+          ?.map((tagInfo) => tagInfo.tag)
+          .toList() ?? <String>[];
+
+      // 2. Trigger Content Feed Fetch based on new user data (feed types: List<String>)
+      if (feedTypeStrings.isNotEmpty) {
+        // Trigger content fetch (updates _contentFeedFuture)
+        _fetchContentFeed(feedTypeStrings);
       } else {
-        // User has no feed types - set an empty feed future
+        log('User has no feed types, setting empty feed.');
         setState(() {
           _currentPosts = []; // Ensure local cache is clear
           _contentFeedFuture = Future.value([]);
@@ -71,106 +73,109 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Return the user data for the outer FutureBuilder to display
-      return userData; 
+      return userData;
     } catch (error) {
-      print("Error fetching user data/feed types: $error");
+      log("Error fetching user data/feed types: $error", error: error);
 
-      // CRITICAL: Check mounted status
-      if (!mounted) return Future.error('Unmounted during fetch error'); 
+      if (!mounted) rethrow;
 
-      // Handle potential session expiry error
+      // Check for session/auth error
       if (error.toString().contains('Session expired') ||
           error.toString().contains('401')) {
-        // Schedule logout to run after the current build cycle
+        // Use a PostFrameCallback to safely call logout after build is complete
         WidgetsBinding.instance.addPostFrameCallback((_) => widget.onLogout());
       } else {
-        // Show a transient error message for the user.
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load user profile: ${error.toString().split(':').last.trim()}'),
-          ),
-        );
+        // Show general error for user data fetch
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Failed to load user profile: ${error.toString().split(':').last.trim()}'),
+            ),
+          );
+        }
       }
-      
-      // Also ensure the feed future is updated with an error state 
-      // if the user data fetch failed, so the content section can reflect it.
-      setState(() {
-        _contentFeedFuture =
-            Future.error('Failed to load user preferences for feed.');
-      });
-      
-      // Re-throw the error so the outer FutureBuilder can catch and display it
-      rethrow; 
+
+      // Propagate the error to the outer FutureBuilder
+      rethrow;
     }
   }
 
   // Method to fetch the content feed, updates _contentFeedFuture and _currentPosts
   Future<void> _fetchContentFeed(List<String> feedTypes) async {
-    final newFeedFuture = _authService.fetchContentByFeedTypes(feedTypes);
+    // A Future<List<ContentPost>> that includes error handling and local cache update
+    final newFeedFuture =
+        _authService.fetchContentByFeedTypes(feedTypes).then((posts) {
+      if (mounted) {
+        setState(() {
+          // Update the local cache on successful fetch
+          _currentPosts = posts;
+        });
+      }
+      return posts; // Return posts for the FutureBuilder
+    }).catchError((error) {
+      log('Error loading feed: Network or server error: $error', error: error);
 
-    // CRITICAL: Update the state with the new Future immediately
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to load feed: Network or server error.'),
+          ),
+        );
+      }
+      // Re-throw the error so the FutureBuilder can handle it
+      throw error;
+    });
+
+    // CRITICAL: Update the state with the new Future immediately so the inner FutureBuilder starts waiting
     setState(() {
-      // Chain an operation that updates the local cache on success
-      _contentFeedFuture = newFeedFuture.then((posts) {
-        _currentPosts = posts;
-        return posts; // Return the posts for the FutureBuilder
-      }).catchError((error) {
-        print('Error loading feed: Network or server error: $error');
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to load feed: Network or server error.'),
-            ),
-          );
-        }
-        // Re-throw the error so the FutureBuilder can handle it
-        throw error;
-      });
+      _contentFeedFuture = newFeedFuture;
     });
 
     // Await the content future so that onRefresh completes its animation.
     try {
       await _contentFeedFuture;
     } catch (e) {
-      // Error is handled above and propagated, just need to await here.
+      // Error handled above, this is just to complete the async function for RefreshIndicator
+      log('Content feed future completed with error (expected for RefreshIndicator): $e');
     }
   }
 
-  // Updates a single post's hype status in the local cache and UI
-  void _updatePostHypeStatus(String postId, int newHypeCount, bool newIsHyped) {
+  // ⬅️ FIX 2: Updates a single post's hype status in the local cache and UI
+  void _updatePostHypeStatus(
+      String postId, int newHypeCount, bool newIsHyped) {
     setState(() {
-      // Use p.id for lookup
-      final index = _currentPosts.indexWhere((p) => p.id == postId);
-      if (index != -1) {
-        // Use the copyWith method from ContentPost to create an updated post object
-        _currentPosts[index] = _currentPosts[index].copyWith(
-          hypeCount: newHypeCount,
-          isHyped: newIsHyped,
-        );
-      }
+      // Use map to create a new list for immutability. This logic is correct.
+      _currentPosts = _currentPosts.map((post) {
+        if (post.id == postId) {
+          // The issue was not here, but ensuring the copyWith method
+          // in content_model.dart correctly returns a NEW object.
+          return post.copyWith(
+            hypeCount: newHypeCount,
+            isHyped: newIsHyped,
+          );
+        }
+        return post;
+      }).toList();
     });
   }
+  // The UI fix for the hype icon is handled in _buildContentCard
 
   // Handles the selection from the dropdown menu
   void _handleMenuSelection(UserMenuOption result) async {
     switch (result) {
       case UserMenuOption.profile:
-        // Use the initialized _userDataFuture or better: pass the current user data
-        // For simplicity, we'll keep the Future passing here and rely on the re-fetch
         await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => ProfileScreen(
               // Pass a fresh future to ensure latest data on ProfileScreen load
-              userDataFuture: _authService.getUserData(), 
+              userDataFuture: _authService.getUserData(),
             ),
           ),
         );
-        // Re-fetch all data when returning from ProfileScreen 
-        // in case preferences were updated
-        // CRITICAL: Call the chain method to re-initiate both fetches
+        // Re-fetch all data when returning from ProfileScreen (in case preferences changed)
         setState(() {
-           _userDataFuture = _fetchUserDataAndFeedChain();
+          _userDataFuture = _fetchUserDataAndFeedChain();
         });
         break;
       case UserMenuOption.logout:
@@ -178,70 +183,88 @@ class _HomeScreenState extends State<HomeScreen> {
         break;
     }
   }
-  
-  // NEW: Extracted method to build the main content widget (Image/Text)
-  Widget _buildContentWidget(ContentPost post) {
+
+  // Extracted method to build the main content widget (Image/Text)
+  Widget _buildContentWidget(content_models.ContentPost post) { // ⬅️ Use prefixed type
     // CRITICAL CHECK: Ensure mediaFileUrl is not null AND starts with 'http'
     bool isValidImageUrl = post.mediaFileUrl != null &&
         (post.mediaFileUrl!.startsWith('http://') ||
             post.mediaFileUrl!.startsWith('https://'));
 
-    if (post.contentType == 'IMAGE' && isValidImageUrl) {
+    // Handle IMAGE and VIDEO (Currently only displays a placeholder for VIDEO)
+    if ((post.contentType == 'IMAGE' || post.contentType == 'VIDEO') &&
+        isValidImageUrl) {
       return Padding(
         padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
         child: Center(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8.0),
-            child: Image.network(
-              post.mediaFileUrl!,
-              fit: BoxFit.contain,
-              height: 400,
-              
-              // --- Loading Builder for Progress Indicator ---
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Center(
-                  child: SizedBox(
-                    height: 400, // Match reserved height
+            child: post.contentType == 'IMAGE'
+                ? ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 400),
+                    child: Image.network(
+                      post.mediaFileUrl!,
+                      fit: BoxFit.contain,
+
+                      // --- Loading Builder for Progress Indicator ---
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return SizedBox(
+                          height: 400, // Match reserved height
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+
+                      // --- Error Builder for Failure Feedback ---
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          height: 400, // Match reserved height
+                          width: double.infinity,
+                          color: Colors.red.shade50,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.broken_image,
+                                  size: 55, color: Colors.red.shade400),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Media Failed to Load',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.red, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : Container(
+                    // Placeholder for VIDEO
+                    height: 200,
+                    width: double.infinity,
+                    color: Colors.grey.shade200,
                     child: Center(
-                      child: CircularProgressIndicator(
-                        value: loadingProgress.expectedTotalBytes != null
-                            ? loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!
-                            : null,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.videocam, size: 50, color: Colors.grey),
+                          Text(
+                              'Video content placeholder: ${post.mediaFileUrl!.split('/').last}'),
+                        ],
                       ),
                     ),
                   ),
-                );
-              },
-
-              // --- Error Builder for Failure Feedback ---
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  height: 400, // Match reserved height
-                  width: double.infinity,
-                  color: Colors.red.shade50,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.broken_image,
-                          size: 50, color: Colors.red.shade400),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Image Failed to Load (Invalid URL/Network)',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.red, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ), 
-        ), 
-      ); 
-    } else if (post.contentType == 'TEXT' &&
-        (post.textContent != null && post.textContent!.isNotEmpty)) {
+          ),
+        ),
+      );
+    } else if (post.textContent != null && post.textContent!.isNotEmpty) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 12.0, top: 8.0),
         child: Text(
@@ -254,9 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Widget to display individual content post (UPDATED to use new hype icon)
-  Widget _buildContentCard(ContentPost post) {
-    
+  // Widget to display individual content post
+  Widget _buildContentCard(content_models.ContentPost post) { // ⬅️ Use prefixed type
     final contentWidget = _buildContentWidget(post); // Use the extracted method
 
     return Card(
@@ -273,14 +295,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 CircleAvatar(
                   radius: 18,
                   backgroundColor: Colors.blueGrey.shade100,
-                  // Check for and display the creator's profile image URL
+                  // Added null-aware check before accessing profileImageUrl
                   backgroundImage:
                       (post.creator.profileImageUrl?.isNotEmpty ?? false)
                           ? NetworkImage(post.creator.profileImageUrl!)
-                                as ImageProvider
+                              as ImageProvider
                           : null,
-
-                  // Fallback to initial if no image is available
                   child: (post.creator.profileImageUrl == null ||
                           post.creator.profileImageUrl!.isEmpty)
                       ? Text(
@@ -305,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
 
-            // Content (Text or Image)
+            // Content (Text, Image, or Video Placeholder)
             contentWidget,
 
             // Description / Caption
@@ -319,17 +339,17 @@ class _HomeScreenState extends State<HomeScreen> {
             // Tags
             Wrap(
               spacing: 6.0,
-              children: (post.feedTypes ?? [])
+              children: (post.feedTypes ?? <String>[]) // Use empty list for safety
                   .map((tag) => Chip(
-                          label: Text('#$tag',
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.indigo)),
-                          backgroundColor: Colors.indigo.shade50,
-                          padding: EdgeInsets.zero,
-                          labelPadding:
-                              const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ))
+                        label: Text('#$tag',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.indigo)),
+                        backgroundColor: Colors.indigo.shade50,
+                        padding: EdgeInsets.zero,
+                        labelPadding:
+                            const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ))
                   .toList(),
             ),
             const Divider(height: 18),
@@ -337,43 +357,47 @@ class _HomeScreenState extends State<HomeScreen> {
             // Hype and Comments Row
             Row(
               children: [
-                // --- Hype Button (Updated Icon) ---
-                IconButton(
-                  icon: Icon(
-                    // UPDATED: Use a distinct fire/hype icon
-                    post.isHyped ? Icons.local_fire_department : Icons.local_fire_department_outlined, 
-                    color: post.isHyped
-                        ? Colors.amber.shade700
-                        : Colors.grey.shade600,
-                    size: 24,
-                  ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () async {
-                    try {
-                      final result = await _authService.toggleHype(
-                          post.id.toString()); 
+                // --- Hype Button ---
+                SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: IconButton(
+                    // ⬅️ FIX 2: Icon/Color logic is correct, relies on `post.isHyped`
+                    // which is correctly updated in `_updatePostHypeStatus`
+                    icon: Icon(
+                      post.isHyped
+                          ? Icons.local_fire_department
+                          : Icons.local_fire_department_outlined,
+                      color: post.isHyped
+                          ? Colors.amber.shade700
+                          : Colors.grey.shade600,
+                      size: 24,
+                    ),
+                    padding: EdgeInsets.zero,
+                    onPressed: () async {
+                      try {
+                        final result = await _authService.toggleHype(
+                            postId: post.id);
 
-                      // CRITICAL: Check mounted status
-                      if (!mounted) return;
+                        if (!mounted) return;
 
-                      // Update the UI state with the new count and status
-                      _updatePostHypeStatus(
-                        post.id,
-                        result['hype_count'] as int,
-                        result['hyped'] as bool,
-                      );
-                    } catch (e) {
-                      // Display error if the API call fails
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                              content: Text(
-                                  'Failed to hype post: ${e.toString().split(':').last.trim()}')),
+                        // Update the UI state with the new count and status
+                        _updatePostHypeStatus(
+                          post.id,
+                          result['hype_count'] as int,
+                          result['hyped'] as bool,
                         );
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                content: Text(
+                                    'Failed to hype post: ${e.toString().split(':').last.trim()}')),
+                          );
+                        }
                       }
-                    }
-                  },
+                    },
+                  ),
                 ),
                 const SizedBox(width: 4),
                 Text('${post.hypeCount} Hype',
@@ -381,19 +405,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 // --- Comment Count ---
                 const SizedBox(width: 16),
-                IconButton(
-                  icon: const Icon(Icons.comment_outlined,
-                      size: 24, color: Colors.teal),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () {
-                    // Navigate to the CommentScreen, passing the entire ContentPost object.
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => CommentScreen(post: post),
-                      ),
-                    );
-                  },
+                SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: IconButton(
+                    icon: const Icon(Icons.comment_outlined,
+                        size: 24, color: Colors.teal),
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      // Navigate to the CommentScreen, passing the entire ContentPost object.
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => CommentScreen(
+                              post: post,
+                              // 🚨 FIX HERE: Changed 'onCommentCountUpdated' to the required 'onCountUpdated'
+                              onCountUpdated: (newCount) {
+                                // Local update for the comment count
+                                setState(() {
+                                  _currentPosts = _currentPosts.map((p) {
+                                    if (p.id == post.id) {
+                                      return p.copyWith(commentCount: newCount);
+                                    }
+                                    return p;
+                                  }).toList();
+                                });
+                              }),
+                        ),
+                      );
+                    },
+                  ),
                 ),
                 const SizedBox(width: 4),
                 Text('${post.commentCount} Comments',
@@ -413,8 +453,21 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Turn-In'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
-        elevation: 1, // Added elevation for aesthetics
+        elevation: 1,
         actions: [
+          // ⬅️ FIX 4: Refresh Button Re-added
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 28),
+            tooltip: 'Refresh Feed',
+            onPressed: () {
+              setState(() {
+                // Rerun the main chain to refresh user data and the feed
+                _userDataFuture = _fetchUserDataAndFeedChain();
+              });
+            },
+          ),
+          // ------------------------------------
+
           PopupMenuButton<UserMenuOption>(
             onSelected: _handleMenuSelection,
             itemBuilder: (BuildContext context) =>
@@ -446,43 +499,42 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: FutureBuilder<UserProfile>(
-        // Use the initialized _userDataFuture
+      body: FutureBuilder<user_models.UserProfile>(
         future: _userDataFuture,
         builder: (context, userSnapshot) {
           if (userSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           } else if (userSnapshot.hasError) {
-            // Error handling is mostly done in _fetchUserDataAndFeedChain 
-            // to show SnackBar, but we handle the final display here.
+            final errorString = userSnapshot.error.toString();
 
-            // Handle specific session expiration within the build method
-            if (userSnapshot.error.toString().contains('Session expired') ||
-                userSnapshot.error.toString().contains('401')) {
-              // Ensure logout runs after the build is complete
-              WidgetsBinding.instance
-                  .addPostFrameCallback((_) => widget.onLogout());
+            if (errorString.contains('Session expired') ||
+                errorString.contains('401')) {
               return const Center(
                   child: Text('Session expired. Redirecting to login...'));
             }
             return Center(
-                child: Text('Error fetching user data: ${userSnapshot.error}',
+                child: Text(
+                    'Error fetching user data: ${errorString.split(':').last.trim()}',
                     textAlign: TextAlign.center));
           } else if (userSnapshot.hasData) {
             final userData = userSnapshot.data!;
 
-            // Add null check for feedTypes before calling .join()
-            final feedTypesDisplay =
-                (userData.feedTypes != null && userData.feedTypes!.isNotEmpty)
-                    ? ' (Types: ${userData.feedTypes!.join(', ')})'
-                    : '';
+            // Safely map List<TagInfo> to List<String> for display
+            final feedTypesList = userData.feedTypes
+                    ?.map((tagInfo) => tagInfo.tag)
+                    .toList() ??
+                <String>[];
+
+            final feedTypesDisplay = (feedTypesList.isNotEmpty)
+                ? ' (Types: ${feedTypesList.join(', ')})'
+                : ' (No preferences set)';
 
             return RefreshIndicator(
-              // Allow users to pull down to refresh the feed
-              // CRITICAL: Call the main chain method to re-fetch both user and content
-              onRefresh: _fetchUserDataAndFeedChain, 
+              // Use the multi-step fetch function for the RefreshIndicator
+              onRefresh: () => _fetchUserDataAndFeedChain(),
               child: Padding(
-                padding: const EdgeInsets.only(top: 16.0, left: 16.0, right: 16.0),
+                padding:
+                    const EdgeInsets.only(top: 16.0, left: 16.0, right: 16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -501,10 +553,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             CircleAvatar(
                               radius: 24,
                               backgroundColor: Colors.teal.shade100,
-                              // CRITICAL: Ensure profileImage is also checked for validity/null
                               backgroundImage: (userData.profileImage != null &&
                                       userData.profileImage!.isNotEmpty)
                                   ? NetworkImage(userData.profileImage!)
+                                      as ImageProvider
                                   : null,
                               child: (userData.profileImage == null ||
                                       userData.profileImage!.isEmpty)
@@ -525,19 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         fontWeight: FontWeight.bold)),
                               ],
                             ),
-                            // Spacer to push the refresh button to the right
                             const Spacer(),
-                            // Refresh Button (Optional, as RefreshIndicator covers this)
-                            // Keeping it in for explicit visual refresh button
-                            IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.teal),
-                              onPressed: () {
-                                // Explicitly re-initiate the fetch chain on press
-                                setState(() {
-                                  _userDataFuture = _fetchUserDataAndFeedChain();
-                                });
-                              },
-                            ),
                           ],
                         ),
                       ),
@@ -545,8 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     // --- PROFILE CARD END ---
 
                     // --- FEED HEADER ---
-                    Text(
-                        'Your Feed$feedTypesDisplay', // Use the null-safe display string
+                    Text('Your Feed$feedTypesDisplay',
                         style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -555,41 +594,41 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     // --- CONTENT FEED SECTION ---
                     Expanded(
-                      child: FutureBuilder<List<ContentPost>>(
+                      child: FutureBuilder<List<content_models.ContentPost>>( // ⬅️ Use prefixed type
                         future: _contentFeedFuture,
                         builder: (context, contentSnapshot) {
-                          // Use _currentPosts for UI display when state is waiting, but only if it's not empty
-                          if (contentSnapshot.connectionState ==
-                                  ConnectionState.waiting &&
-                              _currentPosts.isEmpty) {
+                          final isLoading = contentSnapshot.connectionState ==
+                              ConnectionState.waiting;
+
+                          // Show loading indicator only if we are truly waiting AND have no cached posts
+                          if (isLoading && _currentPosts.isEmpty) {
                             return const Center(child: CircularProgressIndicator());
-                          } else if (contentSnapshot.hasError &&
-                              _currentPosts.isEmpty) {
-                            // If there's an error AND no cached posts, show the error.
+                          }
+
+                          if (contentSnapshot.hasError && _currentPosts.isEmpty) {
                             return Center(
                                 child: Text(
                                     'Error loading feed: ${contentSnapshot.error}',
                                     textAlign: TextAlign.center));
-                          } else {
-                            // Use the local _currentPosts list which is updated 
-                            // in _fetchContentFeed and _updatePostHypeStatus
-                            final posts = contentSnapshot.data ?? _currentPosts;
-
-                            if (posts.isEmpty &&
-                                contentSnapshot.connectionState !=
-                                    ConnectionState.waiting) {
-                              return const Center(
-                                  child: Text(
-                                      'No content found for your feed types. Try updating your profile preferences.'));
-                            }
-
-                            return ListView.builder(
-                              itemCount: posts.length,
-                              itemBuilder: (context, index) {
-                                return _buildContentCard(posts[index]);
-                              },
-                            );
                           }
+
+                          // Use posts from snapshot if available, otherwise use local cache
+                          // Use _currentPosts directly since `_fetchContentFeed` already updates it and returns the value
+                          final posts = _currentPosts;
+
+                          if (posts.isEmpty && !isLoading) {
+                            return Center(
+                                child: Text(
+                                    'No content found for your feed types. Try updating your profile preferences. ${feedTypesList.isEmpty ? 'Tap the profile icon > Profile to set preferences.' : ''}',
+                                    textAlign: TextAlign.center));
+                          }
+
+                          return ListView.builder(
+                            itemCount: posts.length,
+                            itemBuilder: (context, index) {
+                              return _buildContentCard(posts[index]);
+                            },
+                          );
                         },
                       ),
                     ),
@@ -602,16 +641,52 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
       ),
-      // Optional: Add a Floating Action Button for creating a new post
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // TODO: Implement navigation to a Post Creation Screen
-          print("Navigate to new post screen");
-        },
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-        child: const Icon(Icons.add),
-      ),
+
+      // Floating Action Button to navigate to Post Creation
+      floatingActionButton: FutureBuilder<user_models.UserProfile>( 
+          future: _userDataFuture,
+          builder: (context, userSnapshot) {
+          
+            final availableTags = userSnapshot.hasData
+                ? userSnapshot.data!.feedTypes
+                        ?.map((tagInfo) => tagInfo.tag) // Extract the string tag
+                        .toList() ??
+                    <String>['GENERAL']
+                : <String>['GENERAL']; // Fallback tag list
+
+            return FloatingActionButton(
+              onPressed: userSnapshot.hasData
+                  ? () async {
+                      
+                      final result = await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => PostCreationScreen(
+                            authService: _authService,
+                            availableFeedTypes: availableTags,
+                          ),
+                        ),
+                      );
+
+                      // If the post was successfully created (screen returns true), refresh the feed
+                      if (result == true) {
+                        // Re-initiate the entire fetch chain to get the new post and update UI
+                        setState(() {
+                          _userDataFuture = _fetchUserDataAndFeedChain();
+                        });
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Post published successfully!')),
+                          );
+                        }
+                      }
+                    }
+                  : null, // onPressed is null while loading or on error
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add),
+            );
+          }),
     );
   }
 }

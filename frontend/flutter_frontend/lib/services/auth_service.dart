@@ -16,7 +16,7 @@ class AuthService {
 
   final TokenStorageService _tokenService = TokenStorageService();
 
-  // --- NEW FEATURE: CREATE CONTENT POST API ---
+  // --- NEW FEATURE: CREATE CONTENT POST API (UNCHANGED) ---
   /// Creates a new content post, optionally including a media file.
   /// POST /api/content/
   /// Returns the newly created ContentPost model.
@@ -151,7 +151,7 @@ class AuthService {
     }
   }
 
-  // --- UPDATED: POST COMMENT API (Handles replies) ---
+  // --- UPDATED: POST COMMENT API (Handles replies and ID type) ---
   /// Submits a new comment for a given content post.
   /// POST /api/content/{content_id}/comments/
   /// Includes an optional parentCommentId for replies.
@@ -159,7 +159,8 @@ class AuthService {
   Future<CommentModel> postComment(
     String contentId, 
     String text,
-    int? parentCommentId, 
+    // 🔥 FIX: Changed parentCommentId type to String? for consistency with contentId
+    String? parentCommentId, 
   ) async {
     final token = await _tokenService.getAccessToken();
     if (token == null) {
@@ -171,6 +172,8 @@ class AuthService {
     // Build the request body, including parent_comment if provided
     final Map<String, dynamic> bodyData = {'text': text};
     if (parentCommentId != null) {
+      // The API endpoint may expect the comment ID as an int, or a string.
+      // We will send it as a String and rely on Django to handle the conversion if necessary.
       bodyData['parent_comment'] = parentCommentId;
     }
     final requestBody = json.encode(bodyData);
@@ -204,18 +207,20 @@ class AuthService {
   }
 
 
-  //TOGGLE HYPE STATUS (UNCHANGED)
+  //TOGGLE HYPE STATUS (FIXED)
   /// Toggles the hype status for a given content post.
   /// POST /api/content/{content_id}/hype/
   /// Returns a map containing the updated 'hyped' status and 'hype_count'.
-  Future<Map<String, dynamic>> toggleHype(String contentId) async {
+  // 🔥 FIX: Changed signature from positional to named parameter {required String postId}
+  Future<Map<String, dynamic>> toggleHype({required String postId}) async {
     final token = await _tokenService.getAccessToken();
     if (token == null) {
       throw Exception("Authentication token not found.");
     }
 
-    final url = Uri.parse('${ApiConfig.BASE_URL}/content/$contentId/hype/');
-    print('Toggling hype for content ID: $contentId at: $url');
+    // 🔥 FIX: Use the named parameter 'postId' in the URL
+    final url = Uri.parse('${ApiConfig.BASE_URL}/content/$postId/hype/');
+    print('Toggling hype for content ID: $postId at: $url');
     
     try {
       final response = await http.post(
@@ -304,6 +309,7 @@ class AuthService {
       );
 
       if (response.statusCode == 200) {
+        
         final List<dynamic> jsonList = json.decode(response.body);
         return jsonList.map((json) => TagInfo.fromJson(json)).toList();
       } else if (response.statusCode == 401) {
@@ -317,7 +323,7 @@ class AuthService {
   }
 
 
-  // --- FIXED: Fetch Social Media Posts (Added BASE_MEDIA_URL correction) ---
+  // --- FIXED: Fetch Social Media Posts (Added BASE_MEDIA_URL correction) (UNCHANGED) ---
   /// Fetches content posts filtered by the provided feed types (passed to the API as 'feed_types').
   Future<List<ContentPost>> fetchContentByFeedTypes(List<String> feedTypes) async {
     // 1. Format the feedTypes for the API query, using 'feed_types' as the query parameter name
@@ -505,7 +511,7 @@ class AuthService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
-        // 🔥 FIX: Only prepend BASE_MEDIA_URL if the image path is relative AND not already a full URL
+        // FIX: Only prepend BASE_MEDIA_URL if the image path is relative AND not already a full URL
         final String? imagePath = data['profile_image'];
 
         if (imagePath != null && imagePath.startsWith('/') && !imagePath.startsWith('http')) {
@@ -631,7 +637,7 @@ class AuthService {
       // SUCCESS: Decode the JSON and return the new UserProfile
       final data = json.decode(response.body);
       
-      // 🔥 FIX: Correct the returned image URL using the new, safer logic
+      // FIX: Correct the returned image URL using the new, safer logic
       final String? imagePath = data['profile_image'];
 
       if (imagePath != null && imagePath.startsWith('/') && !imagePath.startsWith('http')) {

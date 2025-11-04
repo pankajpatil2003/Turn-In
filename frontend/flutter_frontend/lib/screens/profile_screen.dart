@@ -5,10 +5,14 @@ import 'dart:io';
 import 'dart:async'; 
 
 import '../services/auth_service.dart';
-import '../models/user_model.dart';
-import '../models/content_model.dart'; // <--- Assume TagInfo is defined here
+// FIX 1: Add a prefix to resolve the 'ambiguous_import' error for TagInfo 
+import '../models/user_model.dart' as user_models; 
 
-// Assuming UserProfile, TagInfo, and AuthService are defined elsewhere and correctly imported.
+// We will assume that TagInfo is defined in user_model.dart as user_models.TagInfo
+// And UserProfile is also defined there.
+typedef UserProfile = user_models.UserProfile;
+typedef TagInfo = user_models.TagInfo;
+
 
 class ProfileScreen extends StatefulWidget {
   final Future<UserProfile> userDataFuture;
@@ -40,7 +44,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = false;
   
   // --- State for Dynamic Feed Types ---
-  Set<String> _selectedFeedTypes = {}; 
+  // Stores the full TagInfo object
+  // This was correctly declared as Set<TagInfo> in the original code, resolving the type error.
+  Set<TagInfo> _selectedFeedTypes = {}; 
   Future<List<TagInfo>>? _feed_typesFuture; // Future for fetched feed_types
   String _currentSort = 'rank'; // Default sort method
   Timer? _debounce; // For search debouncing
@@ -107,9 +113,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _collegeController.text = data.collegeUniversity ?? '';
         _departmentController.text = data.department ?? '';
         _courseController.text = data.course ?? '';
+        // Ensure currentYear is handled as String for the controller
         _yearController.text = data.currentYear?.toString() ?? '';
         
-        // 🔥 FIX: Use null-aware operator (?? []) to handle nullable feedTypes
+        // Correctly initialize _selectedFeedTypes with the TagInfo objects
+        // This ensures we are storing the full TagInfo object, which has the 'tag' and 'rank'.
         _selectedFeedTypes = (data.feedTypes ?? []).toSet();
       });
       
@@ -146,9 +154,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     
     // Create a temporary profile object containing only essential non-editable data 
     // and the *new* image file for the multipart request.
-    // CRITICAL: All patchable fields are set to null to avoid validation conflicts (like feedTypes).
     final tempProfile = UserProfile(
-      // Keep essential identity fields
+      id: _currentProfile!.id, // CRITICAL: Must pass ID 
       username: _currentProfile!.username,
       email: _currentProfile!.email,
       isActive: _currentProfile!.isActive,
@@ -160,8 +167,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       department: null,
       course: null,
       currentYear: null,
-      profileImage: null, // Always null for file uploads via multipart
-      feedTypes: null, // <-- CRITICAL FIX: Ensures feed_types is not sent for validation
+      profileImage: null, 
+      feedTypes: null, 
     );
 
     try {
@@ -200,19 +207,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Create a new UserProfile instance with all updated values
     final updatedProfile = UserProfile(
       // Keep existing non-editable fields
+      id: _currentProfile!.id, // CRITICAL: Must pass ID
       username: _currentProfile!.username,
       email: _currentProfile!.email,
       isActive: _currentProfile!.isActive,
       
-      // CRITICAL: Set profileImage to null. This prevents sending the existing image URL 
-      // in the JSON body, which would conflict with the server expecting a file.
+      // CRITICAL: Set profileImage to null. 
       profileImage: null, 
       
-      // Update with the current selected feed types 
-      feedTypes: _selectedFeedTypes.toList(), // ⬅️ This is now List<String>? but _selectedFeedTypes is Set<String>
+      // Send the List<TagInfo> from the state, matching the expected type.
+      feedTypes: _selectedFeedTypes.toList(), 
       
-      // Update with the current controller values, using null for empty strings 
-      // to only patch non-empty values.
+      // Update with the current controller values
       firstName: _firstNameController.text.trim().isEmpty ? null : _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim().isEmpty ? null : _lastNameController.text.trim(),
       collegeUniversity: _collegeController.text.trim().isEmpty ? null : _collegeController.text.trim(),
@@ -233,13 +239,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       // Update the current profile and selected feed types with the response data
       setState(() {
         _currentProfile = newProfile;
-        // 🔥 FIX: Use null-aware operator (?? []) here too
-        _selectedFeedTypes = (newProfile.feedTypes ?? []).toSet(); // Re-sync selected set
+        // Re-sync selected set with the updated TagInfo objects from the server
+        _selectedFeedTypes = (newProfile.feedTypes ?? []).toSet(); 
       });
       
-      // Pop the screen to trigger HomeScreen refresh (if applicable)
-      // Navigator.pop(context); 
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile details updated successfully!')),
       );
@@ -390,21 +393,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     spacing: 8.0,
                     runSpacing: 4.0,
                     children: snapshot.data!.map((tagInfo) {
-                      final tagName = tagInfo.tag;
-                      final isSelected = _selectedFeedTypes.contains(tagName);
+                      
+                      // 🔥 FIX 1: Correctly access the tag name property: .tag
+                      final tagName = tagInfo.tag; 
+                      
+                      // Check selection based on tag name (since the objects themselves might differ slightly in rank/other properties)
+                      // 🔥 FIX 2: Use .tag for comparison
+                      final isSelected = _selectedFeedTypes.any((t) => t.tag == tagName); 
+                      
                       return FilterChip(
                         label: Text(
-                          // Show total usage and rank info
-                          '#$tagName (${tagInfo.totalUsed} uses)', // Removed rank for brevity, but can be re-added
+                          // 🔥 FIX 3: Use tagInfo.tag for display and include totalUsed
+                          '#$tagName (Used: ${tagInfo.totalUsed}, Rank: ${tagInfo.rank.toStringAsFixed(1)})', 
                           overflow: TextOverflow.ellipsis,
                         ),
                         selected: isSelected,
                         onSelected: (bool selected) {
                           setState(() {
                             if (selected) {
-                              _selectedFeedTypes.add(tagName);
+                              // When selecting, add the fetched TagInfo object
+                              _selectedFeedTypes.add(tagInfo);
                             } else {
-                              _selectedFeedTypes.remove(tagName);
+                              // When deselecting, remove based on the tag name
+                              // 🔥 FIX 4: Use .tag for removal
+                              _selectedFeedTypes.removeWhere((t) => t.tag == tagName);
                             }
                           });
                         },
@@ -439,13 +451,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Wrap(
           spacing: 8.0,
           runSpacing: 4.0,
-          children: _selectedFeedTypes.map((tag) {
+          children: _selectedFeedTypes.map((tagInfo) {
+            // 🔥 FIX 5: Access the tag name using the correct property (.tag)
+            final tagName = tagInfo.tag;
             return Chip(
-              label: Text(tag),
+              label: Text(tagName),
               deleteIcon: const Icon(Icons.close, size: 18),
               onDeleted: () {
                 setState(() {
-                  _selectedFeedTypes.remove(tag);
+                  // Remove the TagInfo object based on its tag
+                  // 🔥 FIX 6: Use .tag for removal
+                  _selectedFeedTypes.removeWhere((t) => t.tag == tagName);
                 });
               },
               backgroundColor: Colors.indigo.shade100,
@@ -504,6 +520,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (snapshot.connectionState == ConnectionState.waiting || (_currentProfile == null && snapshot.connectionState != ConnectionState.done)) {
             return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
+            // The primary error from the image 'type 'String' is not a subtype of type 'Map<String, dynamic>'' 
+            // indicates a server/network issue. This message helps diagnose that.
             return Center(child: Text('Error loading profile: ${snapshot.error}', textAlign: TextAlign.center));
           } else if (_currentProfile != null) {
             

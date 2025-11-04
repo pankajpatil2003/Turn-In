@@ -1,19 +1,91 @@
-// lib/models/user_model.dart
+class TagInfo {
+  // Renamed to match the JSON key "tag"
+  final String tag; 
+  // Added to match the JSON key "total_used"
+  final int totalUsed; 
+  // Renamed to match the JSON key "Rank" (Capital R)
+  final double rank; 
+  // Removed 'slug' and 'id' as they are not in the sample data, 
+  // but keeping them if the API provides them elsewhere.
+  final String? slug; 
+  final int? id;
 
-// Used for the final registration API call
+  final String? createdAt;
+  final String? lastUsedAt;
+  
+  TagInfo({
+    required this.tag, 
+    required this.totalUsed, 
+    required this.rank, 
+    this.slug, 
+    this.id,
+    this.createdAt,
+    this.lastUsedAt,
+  });
+
+  /// Factory constructor to parse JSON data.
+  factory TagInfo.fromJson(dynamic json) {
+    if (json is String) {
+      // Handle the case where the API returns a raw string (e.g., "GENERAL")
+      return TagInfo(
+        tag: json,
+        totalUsed: 0, 
+        rank: 0.0,
+      );
+    }
+    
+    // Assume it is a Map<String, dynamic> otherwise
+    final Map<String, dynamic> map = json as Map<String, dynamic>;
+
+    return TagInfo(
+      // CRITICAL FIX: Use backend key "tag"
+      tag: map['tag'] as String? ?? map['name'] as String? ?? '', 
+      // CRITICAL FIX: Use backend key "total_used"
+      totalUsed: map['total_used'] as int? ?? 0, 
+      // CRITICAL FIX: Use backend key "Rank" (with capital 'R') and cast to double
+      rank: (map['Rank'] as num?)?.toDouble() ?? 0.0, 
+      
+      // Kept for backward compatibility or other endpoints:
+      slug: map['slug'] as String?,
+      id: map['id'] as int?,
+      
+      // Parsing date fields
+      createdAt: map['created_at'] as String?,
+      lastUsedAt: map['last_used_at'] as String?,
+    );
+  }
+
+  // Method to convert back to JSON for PATCH/POST
+  Map<String, dynamic> toJson() {
+    return {
+      // Assuming your server expects the full object structure
+      'tag': tag,
+      'total_used': totalUsed,
+      'Rank': rank,
+      'slug': slug,
+      'id': id,
+      'created_at': createdAt,
+      'last_used_at': lastUsedAt,
+    };
+  }
+}
+// ----------------------------------------------------------------------
+
+
+/// 1. Data collected for the final registration step.
 class RegistrationData {
   final String email;
   final String username;
   final String password;
   final String passwordConfirm;
-  final String otpCode;
+  final String otp; 
 
   RegistrationData({
     required this.email,
     required this.username,
     required this.password,
     required this.passwordConfirm,
-    required this.otpCode,
+    required this.otp, 
   });
 
   Map<String, dynamic> toJson() {
@@ -21,15 +93,15 @@ class RegistrationData {
       'email': email,
       'username': username,
       'password': password,
-      'password_confirm': passwordConfirm,
-      'otp_code': otpCode,
+      'password_confirm': passwordConfirm, 
+      'otp': otp, 
     };
   }
 }
 
 // ----------------------------------------------------------------------
 
-// Model used to structure the access and refresh tokens received after a successful login.
+/// 2. Model used to structure the access and refresh tokens received after a successful login.
 class AuthTokens {
   final String accessToken;
   final String refreshToken;
@@ -37,9 +109,8 @@ class AuthTokens {
   AuthTokens({required this.accessToken, required this.refreshToken});
 
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
-    // Ensuring non-nullable strings have a safe fallback
     return AuthTokens(
-      accessToken: json['access'] as String? ?? '',
+      accessToken: json['access'] as String? ?? '', 
       refreshToken: json['refresh'] as String? ?? '',
     );
   }
@@ -47,51 +118,29 @@ class AuthTokens {
 
 // ----------------------------------------------------------------------
 
-// NEW MODEL: Used for creating a new content post (text and feed type)
-class ContentCreationData {
-  final String text;
-  final String feedType;
-
-  ContentCreationData({
-    required this.text,
-    required this.feedType,
-  });
-
-  /// Used for sending text fields in a Multipart request.
-  Map<String, dynamic> toJson() {
-    return {
-      'text': text,
-      'feed_type': feedType,
-    };
-  }
-}
-
-// ----------------------------------------------------------------------
-
-/// NEW MODEL: Used to handle the full user profile data received from the /api/profile/ endpoint.
+/// 3. Model used to handle the full user profile data received from the /api/profile/ endpoint.
 class UserProfile {
-  // Non-editable fields
+  final String id; 
   final String username;
   final String email;
   final bool isActive;
   
-  // FIX 1: Make feedTypes nullable (List<String>?) to handle 'null' from API
-  final List<String>? feedTypes; 
+  final List<TagInfo>? feedTypes; 
 
-  // Editable fields
   String? firstName;
   String? lastName;
-  String? profileImage; // Image is editable via separate multipart request, but URL is tracked here
+  String? profileImage; 
   String? collegeUniversity;
   String? department;
   String? course;
   int? currentYear;
+  String? bio; 
 
   UserProfile({
+    required this.id, 
     required this.username,
     required this.email,
     required this.isActive,
-    // Note: feedTypes is now optional in the constructor
     this.feedTypes, 
     this.firstName,
     this.lastName,
@@ -100,61 +149,67 @@ class UserProfile {
     this.department,
     this.course,
     this.currentYear,
+    this.bio,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
+    // Safely parse ID from int or string to String
+    final idValue = json['id'];
+    String idString;
+    if (idValue is int) {
+      idString = idValue.toString();
+    } else {
+      idString = idValue as String? ?? 'unknown'; 
+    }
+
     final List<dynamic>? feedTypesJson = json['feed_types'] as List<dynamic>?;
     
     return UserProfile(
-      // Non-nullable fields with fallbacks
+      id: idString, 
       username: json['username'] as String? ?? 'Unknown',
       email: json['email'] as String? ?? 'No Email',
       isActive: json['is_active'] as bool? ?? false,
       
-      // Handle the list safely: cast to List<String> or return null
-      // This is necessary because the field is now nullable
-      feedTypes: feedTypesJson?.cast<String>(),
+      // Map the JSON list to TagInfo objects, passing the dynamic 'e' 
+      feedTypes: feedTypesJson
+          ?.map((e) => TagInfo.fromJson(e)) 
+          .toList(),
       
       // Nullable fields
       firstName: json['first_name'] as String?,
       lastName: json['last_name'] as String?,
-      profileImage: json['profile_image'] as String?, 
+      profileImage: json['profile_image'] as String?,
       collegeUniversity: json['college_university'] as String?,
       department: json['department'] as String?,
       course: json['course'] as String?,
       currentYear: json['current_year'] as int?,
+      bio: json['bio'] as String?,
     );
   }
 
-  /// Creates a map of ONLY the fields we intend to PATCH.
-  /// We only include fields that have been explicitly set (i.e., are not null).
+  /// Creates a map of ONLY the fields we intend to PATCH for the JSON request.
   Map<String, dynamic> toPatchJson() {
     final Map<String, dynamic> data = {};
 
-    // FIX 2: Only include feed_types if it is NOT null. 
+    // Map TagInfo objects back to JSON map structure for the server
     if (feedTypes != null) {
-      data['feed_types'] = feedTypes; 
+      // Assuming your server expects the full tag object for PATCH requests.
+      data['feed_types'] = feedTypes!.map((tag) => tag.toJson()).toList(); 
+    }
+    
+    void addIfNotNull(String key, dynamic value) {
+      if (value != null) {
+        data[key] = value;
+      }
     }
 
-    // Include all editable fields only if they are not null.
-    if (firstName != null) {
-      data['first_name'] = firstName;
-    }
-    if (lastName != null) {
-      data['last_name'] = lastName;
-    }
-    if (collegeUniversity != null) {
-      data['college_university'] = collegeUniversity;
-    }
-    if (department != null) {
-      data['department'] = department;
-    }
-    if (course != null) {
-      data['course'] = course;
-    }
-    if (currentYear != null) {
-      data['current_year'] = currentYear;
-    }
+    addIfNotNull('first_name', firstName);
+    addIfNotNull('last_name', lastName);
+    addIfNotNull('college_university', collegeUniversity);
+    addIfNotNull('department', department);
+    addIfNotNull('course', course);
+    addIfNotNull('current_year', currentYear);
+    addIfNotNull('bio', bio);
     
     return data;
   }
