@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../models/user_model.dart' as user_models; // ⬅️ FIX 1: Prefix for User models
-import '../models/content_model.dart' as content_models; // ⬅️ FIX 1: Prefix for Content models
+import '../models/user_model.dart' as user_models;
+import '../models/content_model.dart' as content_models;
 import 'profile_screen.dart';
 import 'comment_screen.dart';
 import 'post_creation_screen.dart';
 import 'dart:async';
 import 'dart:developer';
+
+// 🚨 NEW IMPORT: Video Player for the post feed
+import 'package:video_player/video_player.dart';
 
 // Enum for menu options
 enum UserMenuOption { profile, logout }
@@ -31,10 +34,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // CRITICAL: Separate future for UserData to drive the outer FutureBuilder
   late Future<user_models.UserProfile> _userDataFuture;
   // Separate future for the Content Feed
-  Future<List<content_models.ContentPost>>? _contentFeedFuture; // ⬅️ Use prefixed type
+  Future<List<content_models.ContentPost>>? _contentFeedFuture;
 
   // Local cache of posts for easy update access (e.g., hype status)
-  List<content_models.ContentPost> _currentPosts = []; // ⬅️ Use prefixed type
+  List<content_models.ContentPost> _currentPosts = [];
 
   @override
   void initState() {
@@ -42,6 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // Start fetching user data immediately. The result will then trigger the content fetch.
     _userDataFuture = _fetchUserDataAndFeedChain();
   }
+
+  // --- Data Fetching and Management Methods (No Functional Changes Needed) ---
 
   // A single method to fetch user data AND trigger the content feed fetch
   // Also serves as the onRefresh callback for the RefreshIndicator
@@ -55,7 +60,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Map List<TagInfo> (userData.feedTypes) to List<String> (feedTypeStrings)
-      // This is the correct logic established previously.
       final feedTypeStrings = userData.feedTypes
           ?.map((tagInfo) => tagInfo.tag)
           .toList() ?? <String>[];
@@ -103,7 +107,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Method to fetch the content feed, updates _contentFeedFuture and _currentPosts
   Future<void> _fetchContentFeed(List<String> feedTypes) async {
-    // A Future<List<ContentPost>> that includes error handling and local cache update
     final newFeedFuture =
         _authService.fetchContentByFeedTypes(feedTypes).then((posts) {
       if (mounted) {
@@ -127,29 +130,23 @@ class _HomeScreenState extends State<HomeScreen> {
       throw error;
     });
 
-    // CRITICAL: Update the state with the new Future immediately so the inner FutureBuilder starts waiting
     setState(() {
       _contentFeedFuture = newFeedFuture;
     });
 
-    // Await the content future so that onRefresh completes its animation.
     try {
       await _contentFeedFuture;
     } catch (e) {
-      // Error handled above, this is just to complete the async function for RefreshIndicator
       log('Content feed future completed with error (expected for RefreshIndicator): $e');
     }
   }
 
-  // ⬅️ FIX 2: Updates a single post's hype status in the local cache and UI
+  // Updates a single post's hype status in the local cache and UI
   void _updatePostHypeStatus(
       String postId, int newHypeCount, bool newIsHyped) {
     setState(() {
-      // Use map to create a new list for immutability. This logic is correct.
       _currentPosts = _currentPosts.map((post) {
         if (post.id == postId) {
-          // The issue was not here, but ensuring the copyWith method
-          // in content_model.dart correctly returns a NEW object.
           return post.copyWith(
             hypeCount: newHypeCount,
             isHyped: newIsHyped,
@@ -159,21 +156,18 @@ class _HomeScreenState extends State<HomeScreen> {
       }).toList();
     });
   }
-  // The UI fix for the hype icon is handled in _buildContentCard
 
-  // Handles the selection from the dropdown menu
+  // Handles the selection from the dropdown menu (No changes needed)
   void _handleMenuSelection(UserMenuOption result) async {
     switch (result) {
       case UserMenuOption.profile:
         await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => ProfileScreen(
-              // Pass a fresh future to ensure latest data on ProfileScreen load
               userDataFuture: _authService.getUserData(),
             ),
           ),
         );
-        // Re-fetch all data when returning from ProfileScreen (in case preferences changed)
         setState(() {
           _userDataFuture = _fetchUserDataAndFeedChain();
         });
@@ -184,103 +178,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Extracted method to build the main content widget (Image/Text)
-  Widget _buildContentWidget(content_models.ContentPost post) { // ⬅️ Use prefixed type
-    // CRITICAL CHECK: Ensure mediaFileUrl is not null AND starts with 'http'
-    bool isValidImageUrl = post.mediaFileUrl != null &&
-        (post.mediaFileUrl!.startsWith('http://') ||
-            post.mediaFileUrl!.startsWith('https://'));
-
-    // Handle IMAGE and VIDEO (Currently only displays a placeholder for VIDEO)
-    if ((post.contentType == 'IMAGE' || post.contentType == 'VIDEO') &&
-        isValidImageUrl) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
-        child: Center(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8.0),
-            child: post.contentType == 'IMAGE'
-                ? ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 400),
-                    child: Image.network(
-                      post.mediaFileUrl!,
-                      fit: BoxFit.contain,
-
-                      // --- Loading Builder for Progress Indicator ---
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return SizedBox(
-                          height: 400, // Match reserved height
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              value: loadingProgress.expectedTotalBytes != null
-                                  ? loadingProgress.cumulativeBytesLoaded /
-                                      loadingProgress.expectedTotalBytes!
-                                  : null,
-                            ),
-                          ),
-                        );
-                      },
-
-                      // --- Error Builder for Failure Feedback ---
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          height: 400, // Match reserved height
-                          width: double.infinity,
-                          color: Colors.red.shade50,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.broken_image,
-                                  size: 55, color: Colors.red.shade400),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Media Failed to Load',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.red, fontSize: 14),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  )
-                : Container(
-                    // Placeholder for VIDEO
-                    height: 200,
-                    width: double.infinity,
-                    color: Colors.grey.shade200,
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.videocam, size: 50, color: Colors.grey),
-                          Text(
-                              'Video content placeholder: ${post.mediaFileUrl!.split('/').last}'),
-                        ],
-                      ),
-                    ),
-                  ),
-          ),
-        ),
-      );
-    } else if (post.textContent != null && post.textContent!.isNotEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12.0, top: 8.0),
-        child: Text(
-          post.textContent!,
-          style: const TextStyle(fontSize: 16),
-        ),
-      );
-    } else {
-      return const SizedBox.shrink(); // Hide if no main content
-    }
-  }
-
-  // Widget to display individual content post
-  Widget _buildContentCard(content_models.ContentPost post) { // ⬅️ Use prefixed type
-    final contentWidget = _buildContentWidget(post); // Use the extracted method
-
+  // Widget to display individual content post (Uses the new _PostContentWidget)
+  Widget _buildContentCard(content_models.ContentPost post) {
     return Card(
       elevation: 1,
       margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 0),
@@ -295,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 CircleAvatar(
                   radius: 18,
                   backgroundColor: Colors.blueGrey.shade100,
-                  // Added null-aware check before accessing profileImageUrl
                   backgroundImage:
                       (post.creator.profileImageUrl?.isNotEmpty ?? false)
                           ? NetworkImage(post.creator.profileImageUrl!)
@@ -325,9 +223,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
 
-            // Content (Text, Image, or Video Placeholder)
-            contentWidget,
-
+            // 🚨 CRITICAL CHANGE: Use the new StatefulWidget here to manage video state
+            _PostContentWidget(post: post),
+            
             // Description / Caption
             if (post.description.isNotEmpty)
               Padding(
@@ -362,8 +260,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: 38,
                   height: 38,
                   child: IconButton(
-                    // ⬅️ FIX 2: Icon/Color logic is correct, relies on `post.isHyped`
-                    // which is correctly updated in `_updatePostHypeStatus`
                     icon: Icon(
                       post.isHyped
                           ? Icons.local_fire_department
@@ -376,8 +272,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: EdgeInsets.zero,
                     onPressed: () async {
                       try {
-                        final result = await _authService.toggleHype(
-                            postId: post.id);
+                        final result =
+                            await _authService.toggleHype(postId: post.id);
 
                         if (!mounted) return;
 
@@ -418,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         MaterialPageRoute(
                           builder: (context) => CommentScreen(
                               post: post,
-                              // 🚨 FIX HERE: Changed 'onCommentCountUpdated' to the required 'onCountUpdated'
+                              // FIX: 'onCommentCountUpdated' -> 'onCountUpdated'
                               onCountUpdated: (newCount) {
                                 // Local update for the comment count
                                 setState(() {
@@ -446,8 +342,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // --- Main Build Method (Unchanged structure) ---
+
   @override
   Widget build(BuildContext context) {
+    final isMediaAttached = _contentFeedFuture != null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Turn-In'),
@@ -455,19 +354,17 @@ class _HomeScreenState extends State<HomeScreen> {
         foregroundColor: Colors.white,
         elevation: 1,
         actions: [
-          // ⬅️ FIX 4: Refresh Button Re-added
+          // Refresh Button
           IconButton(
             icon: const Icon(Icons.refresh, size: 28),
             tooltip: 'Refresh Feed',
             onPressed: () {
               setState(() {
-                // Rerun the main chain to refresh user data and the feed
                 _userDataFuture = _fetchUserDataAndFeedChain();
               });
             },
           ),
-          // ------------------------------------
-
+          // Dropdown Menu
           PopupMenuButton<UserMenuOption>(
             onSelected: _handleMenuSelection,
             itemBuilder: (BuildContext context) =>
@@ -519,7 +416,6 @@ class _HomeScreenState extends State<HomeScreen> {
           } else if (userSnapshot.hasData) {
             final userData = userSnapshot.data!;
 
-            // Safely map List<TagInfo> to List<String> for display
             final feedTypesList = userData.feedTypes
                     ?.map((tagInfo) => tagInfo.tag)
                     .toList() ??
@@ -530,7 +426,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 : ' (No preferences set)';
 
             return RefreshIndicator(
-              // Use the multi-step fetch function for the RefreshIndicator
               onRefresh: () => _fetchUserDataAndFeedChain(),
               child: Padding(
                 padding:
@@ -538,7 +433,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // --- PROFILE CARD START ---
+                    // --- PROFILE CARD START (Unchanged) ---
                     Card(
                       elevation: 4,
                       shape: RoundedRectangleBorder(
@@ -594,13 +489,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     // --- CONTENT FEED SECTION ---
                     Expanded(
-                      child: FutureBuilder<List<content_models.ContentPost>>( // ⬅️ Use prefixed type
+                      child: FutureBuilder<List<content_models.ContentPost>>(
                         future: _contentFeedFuture,
                         builder: (context, contentSnapshot) {
                           final isLoading = contentSnapshot.connectionState ==
                               ConnectionState.waiting;
 
-                          // Show loading indicator only if we are truly waiting AND have no cached posts
                           if (isLoading && _currentPosts.isEmpty) {
                             return const Center(child: CircularProgressIndicator());
                           }
@@ -612,8 +506,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                     textAlign: TextAlign.center));
                           }
 
-                          // Use posts from snapshot if available, otherwise use local cache
-                          // Use _currentPosts directly since `_fetchContentFeed` already updates it and returns the value
                           final posts = _currentPosts;
 
                           if (posts.isEmpty && !isLoading) {
@@ -643,10 +535,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
 
       // Floating Action Button to navigate to Post Creation
-      floatingActionButton: FutureBuilder<user_models.UserProfile>( 
+      floatingActionButton: FutureBuilder<user_models.UserProfile>(
           future: _userDataFuture,
           builder: (context, userSnapshot) {
-          
             final availableTags = userSnapshot.hasData
                 ? userSnapshot.data!.feedTypes
                         ?.map((tagInfo) => tagInfo.tag) // Extract the string tag
@@ -657,7 +548,6 @@ class _HomeScreenState extends State<HomeScreen> {
             return FloatingActionButton(
               onPressed: userSnapshot.hasData
                   ? () async {
-                      
                       final result = await Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (context) => PostCreationScreen(
@@ -667,9 +557,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
 
-                      // If the post was successfully created (screen returns true), refresh the feed
                       if (result == true) {
-                        // Re-initiate the entire fetch chain to get the new post and update UI
                         setState(() {
                           _userDataFuture = _fetchUserDataAndFeedChain();
                         });
@@ -687,6 +575,238 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Icon(Icons.add),
             );
           }),
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// 🚨 NEW WIDGET: _PostContentWidget
+// This new StatefulWidget manages the video player lifecycle for each post.
+// -------------------------------------------------------------
+class _PostContentWidget extends StatefulWidget {
+  final content_models.ContentPost post;
+
+  const _PostContentWidget({required this.post});
+
+  @override
+  State<_PostContentWidget> createState() => _PostContentWidgetState();
+}
+
+class _PostContentWidgetState extends State<_PostContentWidget> {
+  VideoPlayerController? _videoController;
+  Future<void>? _initializeVideoPlayerFuture;
+  bool _isDisposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeMedia();
+  }
+
+  // Handle case where post data changes (e.g., in a complex list update)
+  @override
+  void didUpdateWidget(covariant _PostContentWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.post.mediaFileUrl != oldWidget.post.mediaFileUrl ||
+        widget.post.contentType != oldWidget.post.contentType) {
+      _disposeVideoController();
+      _initializeMedia();
+    }
+  }
+
+  void _disposeVideoController() {
+    _videoController?.dispose();
+    _videoController = null;
+    _initializeVideoPlayerFuture = null;
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true; // Safety flag
+    _disposeVideoController();
+    super.dispose();
+  }
+
+  void _initializeMedia() {
+    final post = widget.post;
+    final isValidUrl = post.mediaFileUrl != null &&
+        (post.mediaFileUrl!.startsWith('http://') ||
+            post.mediaFileUrl!.startsWith('https://'));
+
+    if (post.contentType == 'VIDEO' && isValidUrl) {
+      // Use VideoPlayerController.networkUrl for web/remote files
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(post.mediaFileUrl!));
+      _initializeVideoPlayerFuture = _videoController!.initialize().then((_) {
+        if (!_isDisposed && mounted) {
+          // No auto-play on initial load; user must tap.
+          setState(() {});
+        }
+      });
+      _videoController!.setLooping(true);
+    }
+  }
+
+  Widget _buildVideoControls() {
+    if (_videoController == null || !_videoController!.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+    
+    return Center(
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(50),
+        ),
+        child: IconButton(
+          icon: Icon(
+            _videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+            color: Colors.white,
+            size: 30,
+          ),
+          onPressed: () {
+            setState(() {
+              _videoController!.value.isPlaying
+                  ? _videoController!.pause()
+                  : _videoController!.play();
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  // --- Main Build Method for Content ---
+  @override
+  Widget build(BuildContext context) {
+    final post = widget.post;
+    bool isValidImageUrl = post.mediaFileUrl != null &&
+        (post.mediaFileUrl!.startsWith('http://') ||
+            post.mediaFileUrl!.startsWith('https://'));
+
+    // 1. VIDEO CONTENT
+    if (post.contentType == 'VIDEO' && isValidImageUrl) {
+      if (_initializeVideoPlayerFuture == null) {
+        // Fallback for cases where initialization failed early or wasn't triggered
+        return _buildMediaError('VIDEO');
+      }
+      
+      return Padding(
+        padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+        child: FutureBuilder(
+          future: _initializeVideoPlayerFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.done) {
+              if (_videoController!.value.hasError) {
+                return _buildMediaError('VIDEO');
+              }
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(8.0),
+                child: AspectRatio(
+                  aspectRatio: _videoController!.value.aspectRatio,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      VideoPlayer(_videoController!),
+                      // Custom controls overlay
+                      _buildVideoControls(), 
+                    ],
+                  ),
+                ),
+              );
+            } else {
+              // Loading state
+              return Container(
+                height: 200,
+                color: Colors.grey.shade200,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 10),
+                      Text('Loading Video: ${post.mediaFileUrl!.split('/').last}'),
+                    ],
+                  ),
+                ),
+              );
+            }
+          },
+        ),
+      );
+    } 
+    
+    // 2. IMAGE CONTENT
+    else if (post.contentType == 'IMAGE' && isValidImageUrl) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+        child: Center(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8.0),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 400),
+              child: Image.network(
+                post.mediaFileUrl!,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return SizedBox(
+                    height: 400, 
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return _buildMediaError('IMAGE');
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    } 
+    
+    // 3. TEXT CONTENT
+    else if (post.textContent != null && post.textContent!.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12.0, top: 8.0),
+        child: Text(
+          post.textContent!,
+          style: const TextStyle(fontSize: 16),
+        ),
+      );
+    } 
+    
+    // 4. FALLBACK / NO CONTENT
+    else {
+      return const SizedBox.shrink();
+    }
+  }
+
+  // Error/Placeholder Widget for images and videos that fail to load
+  Widget _buildMediaError(String type) {
+    return Container(
+      height: 200, 
+      width: double.infinity,
+      color: Colors.red.shade50,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(type == 'VIDEO' ? Icons.videocam_off : Icons.broken_image,
+              size: 55, color: Colors.red.shade400),
+          const SizedBox(height: 8),
+          Text(
+            '$type Media Failed to Load',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.red.shade600, fontSize: 14),
+          ),
+        ],
+      ),
     );
   }
 }

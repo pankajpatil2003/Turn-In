@@ -16,13 +16,15 @@ class AuthService {
 
   final TokenStorageService _tokenService = TokenStorageService();
 
-  // --- NEW FEATURE: CREATE CONTENT POST API (UNCHANGED) ---
-  /// Creates a new content post, optionally including a media file.
-  /// POST /api/content/
-  /// Returns the newly created ContentPost model.
+  // --- UPDATED FEATURE: CREATE CONTENT POST API ---
+  /// Creates a new content post, optionally including a media file, adhering to API specs:
+  /// - content_type (IMAGE/VIDEO/TEXT) is required.
+  /// - Text content is mapped to 'description' (for media) or 'text_content' (for text-only).
+  /// - Tags are mapped to 'feed_types' (comma-separated string for multipart, or list for JSON).
   Future<ContentPost> createContentPost({
-    required String text,
-    required String feedType,
+    required String text, // Used as description/caption for media or text_content for text-only.
+    // 🔥 CRITICAL CHANGE: Accept List<String> instead of String
+    required List<String> feedTypes, 
     XFile? mediaFile, // Optional image/video file
   }) async {
     final accessToken = await _tokenService.getAccessToken();
@@ -31,38 +33,57 @@ class AuthService {
       throw Exception('Authentication required. Access token not found.');
     }
 
-    // Assuming the base content posting endpoint is /api/content/
     final url = Uri.parse('${ApiConfig.BASE_URL}/content/'); 
-    
-    // 1. Create a MultipartRequest
-    final request = http.MultipartRequest('POST', url);
-    request.headers['Authorization'] = 'Bearer $accessToken';
+    http.Response response;
 
-    // 2. Add text fields to the request
-    request.fields['text'] = text;
-    request.fields['feed_type'] = feedType;
+    // Convert the List<String> to a comma-separated string for the API, 
+    // which may expect it this way for multipart forms.
+    final String feedTypesString = feedTypes.join(','); 
 
-    // 3. Add optional media file
     if (mediaFile != null) {
+      // --- A. MEDIA UPLOAD (Multipart/Form-Data) ---
+      final request = http.MultipartRequest('POST', url);
+      request.headers['Authorization'] = 'Bearer $accessToken';
+
+      // 1. Add Text Fields (description and feed_types)
+      // Per Spec A: 'description' is the short caption.
+      request.fields['description'] = text; 
+      // 🔥 CRITICAL FIX: Use the comma-separated string for multipart fields
+      // Per Spec A/B: 'feed_types' is the comma-separated list of tags.
+      request.fields['feed_types'] = feedTypesString; 
+
       final String fileName = mediaFile.name;
       String fileExtension = 'jpeg'; 
       if (fileName.contains('.')) {
           fileExtension = fileName.split('.').last.toLowerCase();
       }
-      // Simple mapping for common image/video types
-      final String mimeSubtype = ['png', 'gif', 'bmp', 'webp', 'mp4', 'mov'].contains(fileExtension) ? fileExtension : 'jpeg';
       
-      // Determine Mime Type (image or video)
-      String mimeTypeMain = ['mp4', 'mov'].contains(mimeSubtype) ? 'video' : 'image'; 
-      final MediaType contentType = MediaType(mimeTypeMain, mimeSubtype);
+      // Determine Mime Type and API Content Type
+      String apiContentType;
+      String mimeTypeMain = 'image';
+      
+      if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(fileExtension)) {
+        mimeTypeMain = 'video';
+        apiContentType = 'VIDEO';
+      } else {
+        // Fallback for image types
+        final String mimeSubtype = ['png', 'gif', 'bmp', 'webp'].contains(fileExtension) ? fileExtension : 'jpeg';
+        apiContentType = 'IMAGE';
+        fileExtension = mimeSubtype; // Use determined subtype for MediaType
+      }
+      
+      final MediaType contentType = MediaType(mimeTypeMain, fileExtension); 
 
-      // Platform-Agnostic File Handling
+      // 🔥 FIX 1: Add the REQUIRED 'content_type' field (IMAGE or VIDEO)
+      request.fields['content_type'] = apiContentType;
+      
+      // 2. Add media file ('media_file' field name per API spec)
       if (kIsWeb) {
         // WEB: Read bytes directly from XFile
         final bytes = await mediaFile.readAsBytes();
         request.files.add(
           http.MultipartFile.fromBytes(
-            'media_file', 
+            'media_file', // Per API Spec
             bytes,
             filename: mediaFile.name,
             contentType: contentType,
@@ -72,43 +93,78 @@ class AuthService {
         // MOBILE/DESKTOP: Use the file path
         request.files.add(
           await http.MultipartFile.fromPath(
-            'media_file', 
+            'media_file', // Per API Spec
             mediaFile.path, 
             contentType: contentType,
           ),
         );
       }
-    }
 
-    // 4. Send the request and process response
-    try {
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 201) { // 201 Created is typical for a new resource
-        final data = json.decode(response.body);
-        
-        // Correct the returned media URL and map to client field name
-        final String? mediaUrl = data['media_file'];
-        final Map<String, dynamic> mutableJson = Map<String, dynamic>.from(data);
-        
-        if (mediaUrl != null && mediaUrl.startsWith('/') && !mediaUrl.startsWith('http')) {
-          mutableJson['media_file_url'] = ApiConfig.BASE_MEDIA_URL + mediaUrl;
-        } else {
-           mutableJson['media_file_url'] = mediaUrl; 
-        }
-        
-        return ContentPost.fromJson(mutableJson); 
-      } else if (response.statusCode == 401) {
-        throw Exception('Session expired or unauthorized.');
-      } else {
-        print('Content post failed! Status: ${response.statusCode}');
-        print('Response Body: ${response.body}');
-        throw Exception("Failed to create content post: ${_parseApiError(response)}");
+      // 3. Send the request
+      try {
+        final streamedResponse = await request.send();
+        response = await http.Response.fromStream(streamedResponse);
+      } catch (e) {
+        print('Content Post Error: $e');
+        throw Exception('Network or general error during content post: $e');
       }
-    } catch (e) {
-      print('Content Post Error: $e');
-      throw Exception('Network or general error during content post: $e');
+
+    } else {
+      // --- B. TEXT-ONLY POST (JSON) ---
+      final requestBody = json.encode({
+        // Per Spec B: Required 'content_type' for text-only post is 'TEXT'
+        'content_type': 'TEXT',
+        // Per Spec B: Required text field for text-only post is 'text_content'
+        'text_content': text, 
+        // 🔥 CRITICAL FIX: Pass the List<String> directly for the JSON body
+        // Per Spec B: 'feed_types' is the list of tags.
+        'feed_types': feedTypes, 
+      });
+
+      print('Sending JSON Content Request to: $url with body: $requestBody');
+      
+      try {
+        response = await http.post(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $accessToken',
+          },
+          body: requestBody,
+        );
+      } catch (e) {
+        print('Content Post Error: $e');
+        throw Exception('Network or general error during content post: $e');
+      }
+    }
+    
+    // 4. Process the response
+    return _processContentPostResponse(response);
+  }
+  
+  // Helper function to process the response for createContentPost
+  ContentPost _processContentPostResponse(http.Response response) {
+    if (response.statusCode == 201) { // 201 Created is typical for a new resource
+      final data = json.decode(response.body);
+      
+      // Correct the returned media URL and map to client field name
+      final String? mediaUrl = data['media_file'];
+      final Map<String, dynamic> mutableJson = Map<String, dynamic>.from(data);
+      
+      // FIX: Prepend BASE_MEDIA_URL if the media URL is relative
+      if (mediaUrl != null && mediaUrl.startsWith('/') && !mediaUrl.startsWith('http')) {
+        mutableJson['media_file_url'] = ApiConfig.BASE_MEDIA_URL + mediaUrl;
+      } else {
+          mutableJson['media_file_url'] = mediaUrl; 
+      }
+      
+      return ContentPost.fromJson(mutableJson); 
+    } else if (response.statusCode == 401) {
+      throw Exception('Session expired or unauthorized.');
+    } else {
+      print('Content post failed! Status: ${response.statusCode}');
+      print('Response Body: ${response.body}');
+      throw Exception("Failed to create content post: ${_parseApiError(response)}");
     }
   }
 
@@ -653,5 +709,4 @@ class AuthService {
       throw Exception(_parseApiError(response));
     }
   }
-  
 }

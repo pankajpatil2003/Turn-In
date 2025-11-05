@@ -94,7 +94,7 @@ class RegistrationData {
       'username': username,
       'password': password,
       'password_confirm': passwordConfirm, 
-      'otp': otp, 
+      'otp_code': otp, 
     };
   }
 }

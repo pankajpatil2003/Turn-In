@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
-import 'dart:io'; // Kept for FileImage usage on non-web platforms
-import 'package:flutter/foundation.dart' show kIsWeb; // Import for kIsWeb
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
-import '../services/auth_service.dart';
-// Assuming this import is necessary
+// 1. ADD VIDEO PLAYER IMPORT
+import 'package:video_player/video_player.dart';
 
-// Enum for available content types (still useful for UI logic)
+import '../services/auth_service.dart';
+
+// Enum for available content types (Text is the default/fallback)
 enum PostContentType { text, image, video }
 
 class PostCreationScreen extends StatefulWidget {
   final AuthService authService;
-  final List<String> availableFeedTypes; // Pass this from UserProfile/API
+  final List<String> availableFeedTypes; 
 
   const PostCreationScreen({
     super.key,
@@ -30,15 +32,30 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
   PostContentType _contentType = PostContentType.text;
   String _textContent = '';
 
-  // 🔥 FIX 1: Use XFile? for the actual file object passed to the API
+  // XFile? is used for the actual file object passed to the API (cross-platform compatible)
   XFile? _xFileMedia;
+  
+  // 2. ADD VIDEO CONTROLLER STATE
+  VideoPlayerController? _videoController;
+  Future<void>? _initializeVideoPlayerFuture;
 
-  // For native mobile preview (can be null on web or if no file is selected)
-  File? _mediaFilePreview;
-
+  // State for the selected feed types (now allowing multiple)
   List<String> _selectedFeedTypes = [];
 
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedFeedTypes = [];
+  }
+  
+  // 3. CLEAN UP RESOURCES
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
 
   // --- Utility Methods ---
 
@@ -56,7 +73,7 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
       context: context,
       builder: (BuildContext context) {
         return SimpleDialog(
-          title: const Text('Select Media Type'),
+          title: const Text('Select Media Type to Attach'),
           children: <Widget>[
             SimpleDialogOption(
               onPressed: () {
@@ -89,39 +106,52 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
     }
 
     if (pickedFile != null) {
+      // Dispose of old controller if a new file is picked
+      _videoController?.dispose();
+      _videoController = null;
+      _initializeVideoPlayerFuture = null;
+
       setState(() {
         _xFileMedia = pickedFile;
         _contentType = type;
-
-        // 🔥 FIX 2: Correctly handle File/XFile for cross-platform compatibility.
-        // dart:io.File creation is skipped on web (kIsWeb) to prevent errors.
-        if (!kIsWeb) {
-          try {
-            final String? pickedPath = pickedFile?.path;
-            if (pickedPath != null && pickedPath.isNotEmpty) {
-              _mediaFilePreview = File(pickedPath);
-            } else {
-              _mediaFilePreview = null;
+        
+        // 4. INITIALIZE VIDEO CONTROLLER FOR VIDEO FILES
+        if (type == PostContentType.video) {
+          if (kIsWeb) {
+            // Web uses the XFile path as a network/blob URL
+            if (pickedFile != null) {
+              _videoController = VideoPlayerController.networkUrl(Uri.parse(pickedFile.path));
             }
-          } catch (e) {
-            _mediaFilePreview = null;
+          } else {
+            // Mobile/Desktop uses the file path
+            if (pickedFile != null) {
+              _videoController = VideoPlayerController.file(File(pickedFile.path));
+            }
           }
-        } else {
-          _mediaFilePreview = null; // No dart:io.File on web
+          
+          _initializeVideoPlayerFuture = _videoController?.initialize().then((_) {
+            // Ensure the first frame is shown and the controller is ready.
+            if (mounted) setState(() {});
+          });
+          _videoController?.setLooping(true);
         }
       });
     }
   }
 
   void _removeMedia() {
+    // Dispose of the controller when media is removed
+    _videoController?.dispose();
+    _videoController = null;
+    _initializeVideoPlayerFuture = null;
+    
     setState(() {
       _xFileMedia = null;
-      _mediaFilePreview = null;
       _contentType = PostContentType.text;
     });
   }
 
-  // --- Submission Logic ---
+  // --- Submission Logic (Unchanged) ---
 
   Future<void> _submitPost() async {
     if (!_formKey.currentState!.validate()) {
@@ -129,14 +159,13 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
     }
     _formKey.currentState!.save();
 
-    // Final checks before API call
     if (_textContent.isEmpty && _xFileMedia == null) {
       _showSnackBar('Post content cannot be empty. Please add text or a media file.');
       return;
     }
 
     if (_selectedFeedTypes.isEmpty) {
-      _showSnackBar('Please select at least one tag/feed type.');
+      _showSnackBar('Please select at least one feed type/tag.');
       return;
     }
 
@@ -144,21 +173,17 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
       _isLoading = true;
     });
 
-    final primaryFeedType = _selectedFeedTypes.first;
-
     try {
-      // API call to AuthService.createContentPost
       await widget.authService.createContentPost(
         text: _textContent,
-        feedType: primaryFeedType,
+        feedTypes: _selectedFeedTypes,
         mediaFile: _xFileMedia,
       );
 
       _showSnackBar('Post created successfully!');
-      // Navigate back to the home screen and trigger a refresh
-      Navigator.of(context).pop(true);
-
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
+      debugPrint('Post creation failed: $e');
       _showSnackBar('Failed to create post: ${e.toString().split(':').last.trim()}');
     } finally {
       if (mounted) {
@@ -170,8 +195,37 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
   }
 
   // --- UI Builders ---
+  
+  // Helper widget for video controls
+  Widget _buildVideoControls() {
+    return Center(
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(50),
+        ),
+        child: IconButton(
+          icon: Icon(
+            _videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+            color: Colors.white,
+            size: 30,
+          ),
+          onPressed: () {
+            setState(() {
+              _videoController!.value.isPlaying
+                  ? _videoController!.pause()
+                  : _videoController!.play();
+            });
+          },
+        ),
+      ),
+    );
+  }
 
   Widget _buildMediaPickerAndPreview() {
+    final fileName = _xFileMedia?.name ?? 'No media file attached.';
+    final fileType = _contentType.toString().split('.').last.toUpperCase();
+
     return Padding(
       padding: const EdgeInsets.only(top: 16.0),
       child: Column(
@@ -182,17 +236,20 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
               Expanded(
                 child: Text(
                   _xFileMedia == null
-                      ? 'No media file attached.'
-                      : 'File: ${_xFileMedia!.name} (${_contentType.toString().split('.').last.toUpperCase()})',
-                  style: const TextStyle(fontStyle: FontStyle.italic),
+                      ? fileName
+                      : 'File: $fileName ($fileType)',
+                  style: const TextStyle(fontStyle: FontStyle.italic, overflow: TextOverflow.ellipsis),
                 ),
               ),
               const SizedBox(width: 8),
-              // Use dialog to choose between image/video
-              ElevatedButton.icon(
+              OutlinedButton.icon(
                 onPressed: _showMediaPickerDialog,
-                icon: const Icon(Icons.add_photo_alternate),
+                icon: const Icon(Icons.add_photo_alternate, size: 18),
                 label: const Text('Add Media'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.teal,
+                  side: const BorderSide(color: Colors.teal),
+                ),
               ),
               if (_xFileMedia != null)
                 Padding(
@@ -205,53 +262,139 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
                 ),
             ],
           ),
-          // 🔥 FIX 3: Cross-platform Media Preview
-          if (_xFileMedia != null)
+          
+          // --- IMAGE PREVIEW BLOCK (Unchanged) ---
+          if (_xFileMedia != null && _contentType == PostContentType.image)
             Container(
               margin: const EdgeInsets.only(top: 10),
-              child: _mediaFilePreview != null && _contentType == PostContentType.image
-                  // Mobile/Desktop Image Preview
-                  ? Container(
-                      height: 150,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey),
-                        borderRadius: BorderRadius.circular(8),
-                        image: DecorationImage(
-                          image: FileImage(_mediaFilePreview!),
+              height: 150,
+              decoration: BoxDecoration(
+                color: Colors.grey[200], 
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Center( 
+                  child: kIsWeb
+                      ? Image.network(
+                          _xFileMedia!.path,
                           fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => _buildPlaceholder('IMAGE'),
+                        )
+                      : Image.file(
+                          File(_xFileMedia!.path),
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => _buildPlaceholder('IMAGE'),
                         ),
-                      ),
-                    )
-                  // Web or Video Preview Placeholder
-                  : Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey),
+                ),
+              ),
+            )
+          
+          // 5. VIDEO PREVIEW BLOCK (New Logic)
+          else if (_xFileMedia != null && _contentType == PostContentType.video)
+            FutureBuilder(
+              future: _initializeVideoPlayerFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.done) {
+                  // If the VideoPlayerController has finished initialization, use
+                  // the data it provides to limit the aspect ratio of the video.
+                  return Container(
+                    margin: const EdgeInsets.only(top: 10),
+                    decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
                         borderRadius: BorderRadius.circular(8),
-                        color: Colors.grey[200],
-                      ),
-                      child: Center(
-                        child: Text(
-                          _contentType == PostContentType.video
-                              ? 'Video Preview Not Available (File: ${_xFileMedia!.name})'
-                              : 'File Selected (Web or Unsupported Preview)',
-                          textAlign: TextAlign.center,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: AspectRatio(
+                        aspectRatio: _videoController!.value.aspectRatio,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: <Widget>[
+                            VideoPlayer(_videoController!),
+                            // Add a subtle overlay for better control visibility
+                            Positioned.fill(
+                                child: Container(color: Colors.black.withOpacity(0.1))
+                            ),
+                            // Custom controls
+                            _buildVideoControls(), 
+                          ],
                         ),
                       ),
                     ),
+                  );
+                } else {
+                  // Show a loading spinner or a simple placeholder while the video is initializing.
+                  return Container(
+                    margin: const EdgeInsets.only(top: 10),
+                    height: 150,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.grey[100],
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(strokeWidth: 2),
+                          const SizedBox(height: 10),
+                          Text('Initializing $fileType Preview...',
+                              style: TextStyle(color: Colors.grey.shade700)),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+              },
+            )
+          // 6. FALLBACK FOR OTHER MEDIA TYPES (Placeholder for unexpected files)
+          else if (_xFileMedia != null)
+             Container(
+              margin: const EdgeInsets.only(top: 10),
+              height: 150, 
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[100],
+              ),
+              child: _buildPlaceholder(fileType),
             ),
         ],
       ),
     );
   }
+  
+  // This placeholder is now only for error cases or non-video/non-image files
+  Widget _buildPlaceholder(String fileType) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(fileType == 'VIDEO' ? Icons.videocam : Icons.photo, size: 40, color: Colors.grey.shade600),
+          const SizedBox(height: 8),
+          Text(
+            '$fileType File Selected.\n(Preview not supported in this context)',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildTagSelector() {
+    // ... (Unchanged)
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Padding(
           padding: EdgeInsets.only(top: 16.0, bottom: 8.0),
-          child: Text('Primary Feed Type (Select ONE tag):', style: TextStyle(fontWeight: FontWeight.bold)),
+          child: Text('Select one or more relevant tags (Feed Types):', style: TextStyle(fontWeight: FontWeight.bold)),
         ),
         Wrap(
           spacing: 8.0,
@@ -264,23 +407,27 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
               onSelected: (bool selected) {
                 setState(() {
                   if (selected) {
-                    // Only allow one to be selected
-                    _selectedFeedTypes = [tag];
+                    _selectedFeedTypes.add(tag);
                   } else {
                     _selectedFeedTypes.remove(tag);
                   }
                 });
               },
-              // Visual cue for single selection requirement
-              selectedColor: Colors.teal.withOpacity(0.7),
+              selectedColor: Colors.teal.shade400,
               checkmarkColor: Colors.white,
+              labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+              backgroundColor: isSelected ? Colors.teal.shade100 : Colors.grey.shade200,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: isSelected ? Colors.teal.shade600 : Colors.grey.shade300),
+              ),
             );
           }).toList(),
         ),
         if (_selectedFeedTypes.isEmpty)
           const Padding(
             padding: EdgeInsets.only(top: 4.0),
-            child: Text('Selection required', style: TextStyle(color: Colors.red, fontSize: 12)),
+            child: Text('Please select at least one tag.', style: TextStyle(color: Colors.red, fontSize: 12)),
           )
       ],
     );
@@ -288,16 +435,17 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Determine the label and maxLines based on media presence
+    // ... (Unchanged)
     final isMediaAttached = _xFileMedia != null;
     final textLabel = isMediaAttached ? 'Caption/Text Content (Optional)' : 'Main Text Content';
-    final maxLines = isMediaAttached ? 3 : 10;
+    final maxLines = isMediaAttached ? 4 : 8;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create New Post'),
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.teal.shade700,
         foregroundColor: Colors.white,
+        elevation: 4,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -306,38 +454,36 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              // 1. Media Picker and Preview
               _buildMediaPickerAndPreview(),
-              const SizedBox(height: 16),
-
-              // 2. Text Content (Caption or Main Content)
+              const SizedBox(height: 24),
               TextFormField(
                 decoration: InputDecoration(
                   labelText: textLabel,
-                  alignLabelWithHint: true, // Useful for multi-line
-                  border: const OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                  hintText: isMediaAttached ? 'Add a descriptive caption...' : 'What\'s on your mind?',
+                  border: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: const BorderRadius.all(Radius.circular(12)),
+                    borderSide: BorderSide(color: Colors.teal.shade500, width: 2),
+                  ),
                 ),
+                minLines: 1,
                 maxLines: maxLines,
                 onSaved: (value) {
                   _textContent = value ?? '';
                 },
                 validator: (value) {
-                  // Require text only if no media file is attached.
-                  if (!isMediaAttached && (value == null || value.isEmpty)) {
+                  if (!isMediaAttached && (value == null || value.trim().isEmpty)) {
                     return 'Please enter content for the post.';
                   }
                   return null;
                 },
               ),
-
-              const SizedBox(height: 16),
-
-              // 3. Tag Selector
+              const SizedBox(height: 24),
               _buildTagSelector(),
-
-              const SizedBox(height: 30),
-
-              // 4. Submit Button
+              const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -348,12 +494,15 @@ class _PostCreationScreenState extends State<PostCreationScreen> {
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
-                      : const Icon(Icons.send),
+                      : const Icon(Icons.send_rounded),
                   label: Text(_isLoading ? 'Posting...' : 'Create Post'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
+                    backgroundColor: Colors.teal.shade600,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ),
